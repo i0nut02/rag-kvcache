@@ -1,0 +1,19 @@
+{
+  "command": "run",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.test",
+  "split": "test",
+  "verify_counts": true,
+  "model": "models/Qwen2.5-1.5B-Instruct",
+  "device": "cuda",
+  "dtype": "float16",
+  "storage": "accelerator-fp16",
+  "cache_device": "cuda",
+  "cache_strategy": "document",
+  "policy": "lru",
+  "workload": "random",
+  "seed": 42,
+  "budget_mb": 4096,
+  "limit": 100,
+  "no_inference": false,
+  "accuracy_available": false
+}

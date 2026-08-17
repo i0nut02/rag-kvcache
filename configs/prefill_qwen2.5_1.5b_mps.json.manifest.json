@@ -1,0 +1,27 @@
+{
+  "calibration_schema_version": "quality-prefill-cost-v1",
+  "created_at": "2026-07-11T08:25:12.342733+00:00",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.train",
+  "dataset_checksum": "4011e9952d5395beb8ff7637b963481a400630c1bbe2f40dc0d83f5d59f926ed",
+  "device": "mps",
+  "dtype": "float16",
+  "git_revision": "f2e605aa28f29098306dc774f7bcd2d2eb291122",
+  "hardware": {
+    "cpu_count": 8,
+    "cuda_available": false,
+    "machine": "arm64",
+    "mps_available": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "processor": "arm",
+    "python": "3.9.6",
+    "torch": "2.8.0"
+  },
+  "model": "models/Qwen2.5-1.5B-Instruct",
+  "model_revision": "models/Qwen2.5-1.5B-Instruct",
+  "prompt_version": "quality-mc-v1",
+  "result_file": "prefill_qwen2.5_1.5b_mps.json",
+  "result_schema_version": "quality-kv-v2",
+  "run_type": "prefill-calibration",
+  "split": "train",
+  "tokenizer_revision": "models/Qwen2.5-1.5B-Instruct"
+}

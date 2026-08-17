@@ -1,0 +1,31 @@
+{
+  "command": "matrix",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.test",
+  "split": "test",
+  "verify_counts": true,
+  "model": "models/Qwen2.5-1.5B-Instruct",
+  "tokenizer": "models/Qwen2.5-1.5B-Instruct",
+  "device": "mps",
+  "dtype": "float16",
+  "no_inference": true,
+  "cache_strategies": ["document", "fixed-block", "radix"],
+  "policies": ["lru", "lfu", "gdsf"],
+  "storage": ["accelerator-fp16", "cpu-int8"],
+  "workloads": ["grouped", "random", "zipf"],
+  "seeds": [42],
+  "budget_mb": [2048, 4096, 8192],
+  "prefill_calibration": "configs/prefill_qwen2.5_1.5b_mps.json",
+  "block_tokens": {
+    "document": 16,
+    "fixed-block": 16,
+    "radix": 16
+  },
+  "profiles": {
+    "smoke": {"limit": 10},
+    "confirmation": {"limit": 50},
+    "full": {"limit": null}
+  },
+  "primary_combinations": 162,
+  "fixed_block_tokens_sensitivity": [16, 64, 256],
+  "accuracy_available": false
+}

@@ -1,0 +1,16 @@
+{
+  "mode": "run_no_inference",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.test",
+  "split": "test",
+  "model": "models/Qwen2.5-1.5B-Instruct",
+  "tokenizer": "models/Qwen2.5-1.5B-Instruct",
+  "cache_strategies": ["document", "fixed-block", "radix"],
+  "workloads": ["grouped", "random", "zipf"],
+  "policies": ["lru", "lfu", "gdsf"],
+  "seeds": [42],
+  "budget_mb": [2048, 4096, 8192],
+  "storage": ["accelerator-fp16", "cpu-int8"],
+  "no_inference": true,
+  "requests": null,
+  "accuracy_available": false
+}

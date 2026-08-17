@@ -1,0 +1,41 @@
+{
+  "calibration_schema_version": "quality-prefill-cost-v1",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.train",
+  "dataset_checksum": "4011e9952d5395beb8ff7637b963481a400630c1bbe2f40dc0d83f5d59f926ed",
+  "device": "mps",
+  "dtype": "float16",
+  "model": "models/Qwen2.5-1.5B-Instruct",
+  "model_revision": "models/Qwen2.5-1.5B-Instruct",
+  "prompt_version": "quality-mc-v1",
+  "repeats": 1,
+  "result_schema_version": "quality-kv-v2",
+  "samples": [
+    {
+      "article_id": "20032",
+      "measurements_s": [
+        9.173157917000001
+      ],
+      "seconds": 9.173157917000001,
+      "tokens": 2794
+    },
+    {
+      "article_id": "51046",
+      "measurements_s": [
+        32.25893875
+      ],
+      "seconds": 32.25893875,
+      "tokens": 6548
+    },
+    {
+      "article_id": "61139",
+      "measurements_s": [
+        33.873508666999996
+      ],
+      "seconds": 33.873508666999996,
+      "tokens": 7593
+    }
+  ],
+  "split": "train",
+  "tokenizer_revision": "models/Qwen2.5-1.5B-Instruct",
+  "warmup": 1
+}
