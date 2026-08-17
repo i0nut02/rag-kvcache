@@ -84,7 +84,9 @@ pip install -r requirements.txt
 
 For a CUDA runtime on Google Colab, follow the copy-paste setup and smoke-test
 commands in [docs/colab.md](docs/colab.md). Dataset files, model weights, and
-generated results are downloaded inside Colab and remain excluded from Git.
+generated results are downloaded inside Colab and remain excluded from Git. Use
+`requirements-colab.txt` there; the fully pinned `requirements.txt` is intended
+for a clean virtual environment, not Colab's managed Python installation.
 
 `run` performs real inference by default. Add `--no-inference` to load only the
 tokenizer and model configuration, calculate the exact 1.5B KV geometry, and

@@ -26,6 +26,8 @@ class CPUIntegrationTest(unittest.TestCase):
         model = GPT2LMHeadModel(
             GPT2Config(
                 vocab_size=64,
+                bos_token_id=None,
+                eos_token_id=None,
                 n_positions=64,
                 n_embd=32,
                 n_layer=2,
@@ -59,6 +61,8 @@ class CPUIntegrationTest(unittest.TestCase):
         model = GPT2LMHeadModel(
             GPT2Config(
                 vocab_size=64,
+                bos_token_id=None,
+                eos_token_id=None,
                 n_positions=64,
                 n_embd=32,
                 n_layer=2,

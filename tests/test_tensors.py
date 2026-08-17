@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 try:
@@ -13,6 +16,8 @@ from src.quality_cache.inference.tensors import (
     restore_blocks,
     slice_stored_blocks,
     store_blocks,
+    to_legacy,
+    to_model_cache,
 )
 
 
@@ -63,6 +68,31 @@ class TensorStorageTest(unittest.TestCase):
             store_blocks(self.cache, "accelerator-fp16", 4)
         with self.assertRaisesRegex(ValueError, "requires a CUDA or MPS device"):
             resolve_storage_device("accelerator-fp16", "cpu")
+
+    def test_transformers_v5_layer_cache_converts_to_legacy(self):
+        layers = [
+            SimpleNamespace(keys=key, values=value) for key, value in self.cache
+        ]
+        converted = to_legacy(SimpleNamespace(layers=layers))
+        self.assertEqual(len(converted), len(self.cache))
+        for original_layer, converted_layer in zip(self.cache, converted):
+            for original, value in zip(original_layer, converted_layer):
+                self.assertIs(original, value)
+
+    def test_transformers_v5_legacy_cache_uses_constructor(self):
+        class DynamicCacheV5:
+            def __init__(self, data):
+                self.data = data
+
+        fake_transformers = SimpleNamespace(DynamicCache=DynamicCacheV5)
+        with patch.dict(sys.modules, {"transformers": fake_transformers}):
+            converted = to_model_cache(self.cache)
+        self.assertIs(converted.data, self.cache)
+
+    def test_transformers_v5_rejects_uninitialized_layer(self):
+        cache = SimpleNamespace(layers=[SimpleNamespace(keys=None, values=None)])
+        with self.assertRaisesRegex(TypeError, "not initialized"):
+            to_legacy(cache)
 
     @unittest.skipUnless(torch is not None and torch.backends.mps.is_available(), "MPS unavailable")
     def test_mps_storage_smoke(self):

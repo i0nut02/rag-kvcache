@@ -12,8 +12,13 @@ are intentionally not stored in Git.
 !git clone https://github.com/i0nut02/rag-kvcache.git
 %cd rag-kvcache
 !python -m pip install --quiet --upgrade pip
-!python -m pip install --quiet -r requirements.txt
+!python -m pip install --quiet -r requirements-colab.txt
 ```
+
+Do not install `requirements.txt` over Colab's managed environment. That file
+pins the complete stack for a clean virtual environment and would replace
+Colab's mutually compatible CUDA-enabled Torch, torchvision, and NumPy builds.
+The Colab requirements deliberately leave those core packages untouched.
 
 If Colab reports that packages already imported by the runtime were replaced,
 restart the runtime once, return to the repository, and continue:

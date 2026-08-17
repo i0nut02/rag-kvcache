@@ -46,6 +46,20 @@ def to_legacy(cache) -> LegacyKV:
         return cache
     if hasattr(cache, "to_legacy_cache"):
         return cache.to_legacy_cache()
+    # Transformers 5 stores each K/V pair in a CacheLayer. Its DynamicCache
+    # iterator yields a third sliding-window value, so read the layer tensors
+    # explicitly instead of converting the iterator directly to a tuple.
+    if hasattr(cache, "layers"):
+        result = []
+        for index, layer in enumerate(cache.layers):
+            key = getattr(layer, "keys", None)
+            value = getattr(layer, "values", None)
+            if key is None or value is None:
+                raise TypeError(
+                    f"cache layer {index} is not initialized or has no K/V tensors"
+                )
+            result.append((key, value))
+        return tuple(result)
     if hasattr(cache, "key_cache"):
         return tuple(zip(cache.key_cache, cache.value_cache))
     raise TypeError(f"unsupported cache type: {type(cache)!r}")
@@ -56,7 +70,11 @@ def to_model_cache(cache: LegacyKV):
     try:
         from transformers import DynamicCache
 
-        return DynamicCache.from_legacy_cache(cache)
+        if hasattr(DynamicCache, "from_legacy_cache"):
+            return DynamicCache.from_legacy_cache(cache)
+        # Transformers 5 removed from_legacy_cache. The first constructor
+        # argument accepts the same per-layer (key, value) iterable.
+        return DynamicCache(cache)
     except (ImportError, AttributeError):
         return cache
 
