@@ -152,6 +152,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="measured prefill-cost JSON used by --no-inference GDSF",
     )
     run.add_argument("--validate-agreement", action="store_true")
+    run.add_argument(
+        "--agreement-atol",
+        type=_nonnegative_float,
+        help=(
+            "cached/uncached label-logit absolute tolerance; default is dtype-aware "
+            "(FP16 0.0625, BF16 0.25, FP32 0.001)"
+        ),
+    )
     run.add_argument("--output", type=Path, required=True, help="per-request JSONL path")
 
     plot = sub.add_parser("plot", help="create the four primary figures")
@@ -174,6 +182,13 @@ def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def _nonnegative_float(value: str) -> float:
+    parsed = float(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be nonnegative")
     return parsed
 
 
@@ -487,6 +502,11 @@ def _run(args, articles) -> int:
         runner = QualityModelRunner(
             args.model, device=args.device, dtype=args.dtype, revision=args.model_revision
         )
+    args.resolved_agreement_atol = (
+        args.agreement_atol
+        if args.agreement_atol is not None
+        else getattr(runner, "reference_logit_atol", None)
+    )
 
     trace = build_workload(articles, args.workload, seed=args.seed, requests=args.requests)
     cold_requests = (
@@ -558,6 +578,7 @@ def _run(args, articles) -> int:
                 block_tokens=args.block_tokens,
                 cache_strategy=args.cache_strategy,
                 validate_agreement=args.validate_agreement,
+                agreement_atol=args.agreement_atol,
             )
         )
         row.update({
@@ -605,6 +626,7 @@ def _run(args, articles) -> int:
         "budget_percent": args.budget_percent,
         "working_set_bytes": corpus_working_set,
         "prefill_cost_model": runner.prefill_cost_model,
+        "agreement_atol": args.resolved_agreement_atol,
     })
     summary_json = args.output.with_suffix(".summary.json")
     summary_csv = args.output.with_suffix(".summary.csv")
@@ -659,6 +681,7 @@ def _manifest(args, run_type, runner=None):
         "cache_strategy": getattr(args, "cache_strategy", "document"),
         "block_tokens": getattr(args, "block_tokens", None),
         "dtype": getattr(args, "dtype", "float16"),
+        "agreement_atol": getattr(args, "resolved_agreement_atol", None),
         "quantization_format": (
             "symmetric-int8-per-layer-per-kv-head"
             if getattr(args, "storage", None) == "cpu-int8" else "none"

@@ -26,6 +26,25 @@ class ScoreResult:
     scores: dict[str, float]
 
 
+def default_reference_logit_atol(dtype) -> float:
+    """Absolute agreement tolerance for numerically different inference paths."""
+    name = str(dtype).replace("torch.", "")
+    return {
+        "float16": 0.0625,
+        "bfloat16": 0.25,
+        "float32": 0.001,
+    }.get(name, 0.001)
+
+
+def transformers_dtype_keyword(version: str) -> str:
+    """Transformers 5 renamed the model-loading torch_dtype argument to dtype."""
+    try:
+        major = int(version.split(".", 1)[0])
+    except (TypeError, ValueError):
+        major = 4
+    return "dtype" if major >= 5 else "torch_dtype"
+
+
 class QualityModelRunner:
     def __init__(
         self,
@@ -36,6 +55,7 @@ class QualityModelRunner:
         revision: str | None = None,
     ):
         import torch
+        import transformers
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self.torch = torch
@@ -52,7 +72,8 @@ class QualityModelRunner:
         self.model_name = model_name
         self.requested_revision = revision
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
-        kwargs = {"torch_dtype": self.dtype, "revision": revision, "low_cpu_mem_usage": True}
+        kwargs = {"revision": revision, "low_cpu_mem_usage": True}
+        kwargs[transformers_dtype_keyword(transformers.__version__)] = self.dtype
         self.model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs).to(self.device)
         self.model.eval()
         self.model_weights_loaded = True
@@ -66,6 +87,7 @@ class QualityModelRunner:
         self.l0_ids = self.tokenizer.encode(l0_text(), add_special_tokens=False)
         self.l0_cache = self._prefill(self.l0_ids)
         self.l0_tokens = sequence_length(self.l0_cache)
+        self.reference_logit_atol = default_reference_logit_atol(self.dtype)
         self.prefill_cost_model = "measured-online"
         self._memory_baseline = self._raw_memory_stats()
 
@@ -269,6 +291,7 @@ class QualityModelRunner:
         block_tokens: int = 16,
         cache_strategy: str = "document",
         validate_agreement: bool = False,
+        agreement_atol: float | None = None,
     ) -> dict[str, Any]:
         l0_ids, article_ids, suffix_ids = encode_parts(
             self.tokenizer, request.article_text, request.question
@@ -348,15 +371,21 @@ class QualityModelRunner:
 
         uncached_label = None
         agreement = None
+        resolved_agreement_atol = (
+            self.reference_logit_atol if agreement_atol is None else agreement_atol
+        )
         if validate_agreement:
             uncached = self.score_uncached(request)
             uncached_label = uncached.label
             agreement = uncached.label == score.label
             logit_delta = max(abs(score.scores[label] - uncached.scores[label]) for label in "ABCD")
-            if storage != "cpu-int8" and (not agreement or logit_delta > 1e-3):
+            if storage != "cpu-int8" and (
+                not agreement or logit_delta > resolved_agreement_atol
+            ):
                 raise AssertionError(
-                    f"FP16 cached/uncached mismatch: label agreement={agreement}, "
-                    f"max label-logit delta={logit_delta:.6g}"
+                    f"cached/uncached mismatch for {self.dtype}: "
+                    f"label agreement={agreement}, max label-logit delta={logit_delta:.6g}, "
+                    f"atol={resolved_agreement_atol:.6g}"
                 )
         else:
             logit_delta = None
@@ -405,6 +434,9 @@ class QualityModelRunner:
             "fp16_reference_label": uncached_label,
             "reference_agreement": agreement,
             "reference_max_label_logit_delta": logit_delta,
+            "reference_logit_atol": (
+                resolved_agreement_atol if validate_agreement else None
+            ),
             "prefill_cost_model": self.prefill_cost_model,
             "model_weights_loaded": True,
             **stats,

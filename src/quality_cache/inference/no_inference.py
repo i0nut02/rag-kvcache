@@ -116,7 +116,9 @@ class NoInferenceRunner:
         block_tokens: int = 16,
         cache_strategy: str = "document",
         validate_agreement: bool = False,
+        agreement_atol: float | None = None,
     ) -> dict[str, Any]:
+        del agreement_atol
         if validate_agreement:
             raise ValueError("--validate-agreement requires inference")
         article_ids = self._article_ids(request)

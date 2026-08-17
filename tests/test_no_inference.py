@@ -33,6 +33,8 @@ class NoInferenceTest(unittest.TestCase):
                 "--no-inference",
                 "--cache-strategy",
                 "radix",
+                "--agreement-atol",
+                "0.1",
                 "--budget-mb",
                 "1",
                 "--output",
@@ -42,6 +44,7 @@ class NoInferenceTest(unittest.TestCase):
         self.assertTrue(args.no_inference)
         self.assertEqual(args.cache_strategy, "radix")
         self.assertEqual(args.storage, "accelerator-fp16")
+        self.assertEqual(args.agreement_atol, 0.1)
         self.assertIsNone(args.requests)
 
     def test_limit_alias_sets_positive_request_count(self):

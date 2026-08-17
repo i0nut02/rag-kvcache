@@ -78,6 +78,11 @@ After that succeeds, repeat with `--limit 100`. Replace `document` with
 `fixed-block` or `radix`, and replace `lru` with `lfu` or `gdsf`, to compare
 strategies while keeping the trace fixed.
 
+`--validate-agreement` still requires identical cached and uncached answer
+labels. Its label-logit check uses a dtype-aware absolute tolerance (0.0625 for
+FP16). A different threshold can be recorded and selected explicitly with, for
+example, `--agreement-atol 0.1`.
+
 ```python
 !python -m json.tool results/colab/dev_random42_document_lru_4gib_limit10.summary.json
 ```
