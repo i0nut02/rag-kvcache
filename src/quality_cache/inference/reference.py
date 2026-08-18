@@ -58,6 +58,7 @@ def attach_offline_reference(
     *,
     storage: str,
     agreement_atol: float,
+    strict: bool = False,
 ) -> None:
     """Attach agreement fields without executing a second model forward."""
     request_id = str(row.get("request_id"))
@@ -84,10 +85,13 @@ def attach_offline_reference(
             "reference_agreement": agreement,
             "reference_max_label_logit_delta": logit_delta,
             "reference_logit_atol": agreement_atol,
+            "reference_within_atol": logit_delta <= agreement_atol,
             "reference_mode": "offline-jsonl",
         }
     )
-    if storage != "cpu-int8" and (not agreement or logit_delta > agreement_atol):
+    if strict and storage != "cpu-int8" and (
+        not agreement or logit_delta > agreement_atol
+    ):
         raise AssertionError(
             "cached/offline-uncached mismatch: "
             f"request={request_id}, label agreement={agreement}, "

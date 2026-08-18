@@ -63,12 +63,21 @@ class OfflineReferenceTest(unittest.TestCase):
             "label_scores": {"A": 3.0, "B": 2.0, "C": 0.5, "D": -1.0},
             "gold_label": "B",
         }
+        measured = dict(candidate)
+        attach_offline_reference(
+            measured,
+            references,
+            storage="accelerator-fp16",
+            agreement_atol=0.0625,
+        )
+        self.assertFalse(measured["reference_within_atol"])
         with self.assertRaisesRegex(AssertionError, "offline-uncached mismatch"):
             attach_offline_reference(
                 dict(candidate),
                 references,
                 storage="accelerator-fp16",
                 agreement_atol=0.0625,
+                strict=True,
             )
         int8 = dict(candidate)
         attach_offline_reference(

@@ -21,8 +21,9 @@ resulting eight-run suite on the labelled QuALITY development split and
 All cached runs use a 4 GiB tensor budget and seed 42. Each cached random run
 uses run 1 as an offline FP16 reference; each cached Zipf run uses run 6. The
 runner joins requests by ID and compares all A/B/C/D scores and predicted labels
-without executing a second model forward. FP16 tolerance violations still fail
-the run, while INT8 differences are measured without being rejected.
+without executing a second model forward. Label disagreements, maximum logit
+deltas, and FP16 tolerance violations are recorded rather than aborting a long
+measurement. `--strict-reference` remains available for fail-fast smoke tests.
 
 This offline-reference design is important on a 15 GiB T4. Keeping a nearly
 full 4 GiB GPU KV cache resident while executing another complete 6k-token
@@ -86,6 +87,7 @@ the 100-request results justify that cost.
 Inspect at least these columns: `ttft_mean_s`, `ttft_p50_s`, `ttft_p95_s`,
 `prefill_time_s`, `load_mean_s`, `transfer_mean_s`, `dequant_mean_s`,
 `article_token_hit_rate`, `accuracy`, `quality_hard_accuracy`,
-`reference_label_agreement`, `accuracy_delta_vs_fp16`, and accelerator/RSS
+`reference_label_agreement`, `reference_max_label_logit_delta`,
+`reference_tolerance_violations`, `accuracy_delta_vs_fp16`, and accelerator/RSS
 memory peaks. Do not mix these measured inference values with the simulated
 prefill times in the no-inference matrix.

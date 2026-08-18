@@ -200,6 +200,31 @@ def summarize(rows: Iterable[dict[str, Any]], *, cold_requests: int = 0) -> dict
         sum(bool(row["reference_agreement"]) for row in comparisons) / len(comparisons)
         if comparisons else math.nan
     )
+    result["reference_label_mismatches"] = sum(
+        not bool(row["reference_agreement"]) for row in comparisons
+    )
+    reference_deltas = [
+        float(row["reference_max_label_logit_delta"])
+        for row in comparisons
+        if row.get("reference_max_label_logit_delta") is not None
+    ]
+    result["reference_max_label_logit_delta"] = (
+        max(reference_deltas) if reference_deltas else math.nan
+    )
+    result["reference_mean_max_label_logit_delta"] = (
+        statistics.fmean(reference_deltas) if reference_deltas else math.nan
+    )
+    tolerance_comparisons = [
+        row for row in comparisons if row.get("reference_within_atol") is not None
+    ]
+    result["reference_within_atol_rate"] = (
+        sum(bool(row["reference_within_atol"]) for row in tolerance_comparisons)
+        / len(tolerance_comparisons)
+        if tolerance_comparisons else math.nan
+    )
+    result["reference_tolerance_violations"] = sum(
+        not bool(row["reference_within_atol"]) for row in tolerance_comparisons
+    )
     reference_labeled = [
         row for row in labels if row.get("fp16_reference_label") is not None
     ]

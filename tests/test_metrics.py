@@ -78,6 +78,8 @@ class MetricsTest(unittest.TestCase):
                 "gold_label": "A",
                 "fp16_reference_label": "A",
                 "reference_agreement": True,
+                "reference_max_label_logit_delta": 0.03125,
+                "reference_within_atol": True,
             },
             {
                 "cache_hit": False,
@@ -87,10 +89,19 @@ class MetricsTest(unittest.TestCase):
                 "gold_label": "A",
                 "fp16_reference_label": "A",
                 "reference_agreement": False,
+                "reference_max_label_logit_delta": 0.125,
+                "reference_within_atol": False,
             },
         ]
         summary = summarize(rows, cold_requests=1)
         self.assertEqual(summary["reference_label_agreement"], 0.5)
+        self.assertEqual(summary["reference_label_mismatches"], 1)
+        self.assertEqual(summary["reference_max_label_logit_delta"], 0.125)
+        self.assertAlmostEqual(
+            summary["reference_mean_max_label_logit_delta"], 0.078125
+        )
+        self.assertEqual(summary["reference_within_atol_rate"], 0.5)
+        self.assertEqual(summary["reference_tolerance_violations"], 1)
         self.assertEqual(summary["fp16_reference_accuracy"], 1.0)
         self.assertEqual(summary["accuracy_delta_vs_fp16"], -0.5)
         self.assertEqual(summary["cold_hit_rate"], 1.0)

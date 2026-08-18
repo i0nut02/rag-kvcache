@@ -182,6 +182,11 @@ def _validate_selected_runs(config: dict) -> None:
     for index, run in enumerate(runs):
         reference_name = run.get("reference_run")
         if reference_name is None:
+            if run.get("strict_reference", config.get("strict_reference", False)):
+                raise ValueError(
+                    f"selected run {run['name']!r} requires reference_run when "
+                    "strict_reference is enabled"
+                )
             continue
         name = str(run["name"])
         if run.get("validate_agreement", config.get("validate_agreement", False)):
@@ -283,6 +288,8 @@ def _build_selected_commands(
                 / f"{config['split']}_{profile}_{reference_name}.jsonl"
             )
             command.extend(("--reference-jsonl", str(reference_output)))
+        if run.get("strict_reference", config.get("strict_reference", False)):
+            command.append("--strict-reference")
         agreement_atol = run.get("agreement_atol", config.get("agreement_atol"))
         if agreement_atol is not None:
             command.extend(("--agreement-atol", str(agreement_atol)))

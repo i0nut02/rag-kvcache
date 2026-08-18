@@ -84,7 +84,8 @@ be used for small standalone checks. The selected confirmation matrix instead
 reuses its saved uncached JSONL through `--reference-jsonl`. This provides the
 same label/score comparison without duplicated compute or a second attention
 workspace. The label-logit check uses a dtype-aware absolute tolerance (0.0625
-for FP16).
+for FP16); the matrix records violations instead of discarding a long run. Add
+`--strict-reference` only when fail-fast behavior is desired.
 
 ```python
 !python -m json.tool results/colab/dev_random42_document_lru_4gib_limit10.summary.json

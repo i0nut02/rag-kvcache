@@ -162,6 +162,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     run.add_argument(
+        "--strict-reference",
+        action="store_true",
+        help="fail an FP16 offline-reference comparison on a label or tolerance mismatch",
+    )
+    run.add_argument(
         "--agreement-atol",
         type=_nonnegative_float,
         help=(
@@ -509,6 +514,8 @@ def _run(args, articles) -> int:
         )
     if args.reference_jsonl is not None and args.policy == "none":
         raise ValueError("--reference-jsonl is only applicable to a cached run")
+    if args.strict_reference and args.reference_jsonl is None:
+        raise ValueError("--strict-reference requires --reference-jsonl")
     if not args.no_inference and args.prefill_calibration is not None:
         raise ValueError("--prefill-calibration is only used with --no-inference")
     if args.no_inference and args.offline_prefill:
@@ -650,6 +657,7 @@ def _run(args, articles) -> int:
                 reference_rows,
                 storage=args.storage,
                 agreement_atol=args.resolved_agreement_atol,
+                strict=args.strict_reference,
             )
         rows.append(row)
         completed = index + 1
@@ -692,6 +700,7 @@ def _run(args, articles) -> int:
         "reference_mode": (
             "offline-jsonl" if args.reference_jsonl is not None else None
         ),
+        "strict_reference": args.strict_reference,
     })
     summary_json = args.output.with_suffix(".summary.json")
     summary_csv = args.output.with_suffix(".summary.csv")

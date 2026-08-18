@@ -144,8 +144,10 @@ python experiments/run_quality.py run \
 For larger accelerator-cache runs, avoid retaining the cache while executing a
 second full reference forward. Run an uncached baseline once and pass its JSONL
 to matched cached runs with `--reference-jsonl`. The runner joins request IDs,
-checks all A/B/C/D scores, enforces the FP16 tolerance, and records the reference
-checksum without adding another model forward to wall time.
+checks all A/B/C/D scores, reports label and FP16-tolerance violations, and
+records the reference checksum without adding another model forward to wall
+time. Add `--strict-reference` to make those FP16 violations fail fast during a
+small debugging run.
 
 Run the requested CUDA version on a GPU host with the model and KV cache both
 resident on that GPU:

@@ -57,7 +57,9 @@ released labels, so they are outside this test-only matrix.
 In the selected dev inference suite, each cached run reuses the corresponding
 uncached JSONL through `--reference-jsonl`. This yields full-trace label and
 score agreement without a duplicate forward or a second full-sequence attention
-workspace while the accelerator KV cache is resident.
+workspace while the accelerator KV cache is resident. Report both label
+agreement and the distribution/count of FP16 absolute-tolerance violations;
+do not silently discard numerically different but label-identical requests.
 
 ## Validity and limitations
 
