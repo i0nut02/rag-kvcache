@@ -25,7 +25,12 @@ def write_csv(path: str | Path, rows: Iterable[dict]) -> Path:
         raise ValueError("cannot write an empty CSV")
     fields = sorted({key for row in rows for key in row})
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=fields,
+            extrasaction="ignore",
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(rows)
     return path

@@ -1,0 +1,84 @@
+{
+  "command": "matrix",
+  "matrix_type": "selected-timing-repetitions",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.dev",
+  "split": "dev",
+  "verify_counts": true,
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "tokenizer": "Qwen/Qwen2.5-1.5B-Instruct",
+  "device": "cuda",
+  "dtype": "float16",
+  "no_inference": false,
+  "output_root": "results/timing_repetitions",
+  "seed": 42,
+  "budget_mb": 4096,
+  "block_tokens": 16,
+  "progress_every": 10,
+  "profiles": {
+    "smoke": {"limit": 10},
+    "confirmation": {"limit": 100},
+    "full": {"limit": null}
+  },
+  "runs": [
+    {
+      "name": "random_segmented_rep2",
+      "workload": "random",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "random_document_lru_fp16_4gib_rep2",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "zipf_segmented_rep2",
+      "workload": "zipf",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "zipf_document_lru_fp16_4gib_rep2",
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "random_segmented_rep3",
+      "workload": "random",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "random_document_lru_fp16_4gib_rep3",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "zipf_segmented_rep3",
+      "workload": "zipf",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "zipf_document_lru_fp16_4gib_rep3",
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    }
+  ]
+}

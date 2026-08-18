@@ -229,6 +229,22 @@ python experiments/run_quality.py collect results/*.summary.csv results/simulati
 python experiments/run_quality.py plot results/all_summaries.csv figures
 ```
 
+For the selected ten-run real-inference archive, use the stricter fair-baseline
+analyzer. It checks trace and manifest compatibility, compares cached execution
+with segmented execution that retains no article KV, bootstraps paired speedup
+intervals, and writes mismatch diagnostics plus publication-ready figures:
+
+```bash
+python experiments/run_quality.py analyze-inference \
+  results/inference_confirmation/confirmation \
+  --output-dir docs/generated/inference_confirmation
+```
+
+The current generated results are in
+[`docs/generated/inference_confirmation/results.md`](docs/generated/inference_confirmation/results.md),
+and the prioritized follow-up commands are in
+[`docs/next_steps.md`](docs/next_steps.md).
+
 Every result receives a neighboring manifest containing the result schema and dataset checksum,
 seed, exact model/tokenizer identifiers, prompt version, policy, workload,
 storage format, budget, git revision, and hardware information. `collect`
@@ -237,7 +253,7 @@ rejects legacy or mixed-schema summaries.
 The completed 108-run trace findings, representative measurements, and rules
 for interpreting partial-hit metrics are recorded in
 [`docs/no_inference_results.md`](docs/no_inference_results.md).
-The selected eight-run real-inference follow-up and its copy-paste Colab
+The completed ten-run real-inference confirmation and its copy-paste Colab
 commands are recorded in
 [`docs/inference_confirmation.md`](docs/inference_confirmation.md).
 

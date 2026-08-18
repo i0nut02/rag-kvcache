@@ -8,7 +8,7 @@ bounded, stable long-document collection. HotpotQA is mentioned only as
 motivation for rejecting low-reuse workloads; its data and old measurements are
 not part of the evaluation.
 
-The report answers four questions:
+The report answers five questions:
 
 1. Does exact article-prefix reuse lower time to first token?
 2. Under which request orderings and budgets do eviction policies differ?
@@ -61,6 +61,17 @@ workspace while the accelerator KV cache is resident. Report both label
 agreement and the distribution/count of FP16 absolute-tolerance violations;
 do not silently discard numerically different but label-identical requests.
 
+The final inference table must use segmented execution with no retained article
+KV as the cache-only baseline. The original full one-forward baseline remains a
+separate end-to-end system comparison. The checked-in analysis and figures are
+in
+[`generated/inference_confirmation`](generated/inference_confirmation/results.md):
+document and radix FP16 achieve about `1.19x` cache-only speedup on random
+traffic, document FP16 achieves about `2.19x` on Zipf traffic, and 16-token
+fixed-block caching is slower than the fair control. CPU INT8 changes one label
+out of 100 and therefore remains a measured quality tradeoff pending the larger
+confirmation.
+
 ## Validity and limitations
 
 The document strategy uses one whole-article storage and eviction unit. The
@@ -72,3 +83,6 @@ tokenization is suitable for relative policy sweeps; actual experiments use the
 model tokenizer and measured tensor bytes. CPU transfer and INT8 dequantization
 must remain inside TTFT. Results apply to repeated stable-document QA, not to
 arbitrary retrieved-document composition or rapidly changing corpora.
+
+The prioritized remaining experiments and the arena/Triton extension are
+specified in [`next_steps.md`](next_steps.md).

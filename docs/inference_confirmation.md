@@ -154,3 +154,30 @@ For the report, present two speedups separately: full uncached mean TTFT divided
 by cached mean TTFT is the end-to-end system improvement; segmented-control mean
 TTFT divided by cached mean TTFT isolates cross-request article-KV reuse. Do not
 describe the small pinned L0 root as a separate cache strategy.
+
+## Reproduce the final analysis
+
+After all ten JSONLs and their manifests are in one directory, validate the
+archive and generate the report tables, paired-bootstrap intervals, mismatch
+diagnostics, and figures with:
+
+```bash
+python experiments/run_quality.py analyze-inference \
+  results/inference_confirmation/confirmation \
+  --output-dir docs/generated/inference_confirmation \
+  --bootstrap-samples 20000 --seed 42
+```
+
+The analyzer rejects missing runs, mixed models, mixed dataset checksums, mixed
+Torch versions, non-aligned traces, duplicate trace positions, and a segmented
+control that retained article KV. It records SHA-256 hashes for all input
+JSONLs in `analysis.json`.
+
+The checked-in analysis of the completed T4 archive is
+[`generated/inference_confirmation/results.md`](generated/inference_confirmation/results.md).
+The main cache-only findings are `1.19x` for document/radix FP16 and `1.33x`
+for document CPU INT8 on random traffic, and `2.19x` for document FP16 on Zipf
+traffic. The 16-token fixed-block implementation is slower than the fair
+control (`0.83x`). All FP16 cache paths preserve the segmented-path label;
+CPU INT8 changes one of 100 labels. See [`next_steps.md`](next_steps.md) for the
+targeted follow-up runs and systems implementation sequence.

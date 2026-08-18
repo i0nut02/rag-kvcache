@@ -155,6 +155,65 @@ class ExperimentConfigTest(unittest.TestCase):
             },
         )
 
+    def test_fixed_block_sensitivity_is_a_six_run_test_only_sweep(self):
+        root = Path(__file__).resolve().parents[1]
+        config = load_matrix(root / "configs" / "fixed_block_sensitivity.json")
+        output = root / "results" / "fixed-block-sensitivity"
+        commands = build_matrix_commands(config, "full", output)
+
+        self.assertEqual(len(commands), 6)
+        self.assertTrue(all("--no-inference" in command for command in commands))
+        self.assertTrue(all("--limit" not in command for command in commands))
+        self.assertEqual(
+            {
+                int(command[command.index("--block-tokens") + 1])
+                for command in commands
+            },
+            {16, 64, 256},
+        )
+        self.assertEqual(
+            {command[command.index("--workload") + 1] for command in commands},
+            {"random", "zipf"},
+        )
+        self.assertTrue(
+            all(
+                command[command.index("--budget-mb") + 1] == "4096"
+                for command in commands
+            )
+        )
+
+    def test_follow_up_inference_configs_keep_seed_42_and_selected_scope(self):
+        root = Path(__file__).resolve().parents[1]
+        expected = {
+            "int8_accuracy_confirmation.json": (2, "300"),
+            "timing_repetitions.json": (8, "100"),
+        }
+        for name, (run_count, confirmation_limit) in expected.items():
+            with self.subTest(name=name):
+                config = load_matrix(root / "configs" / name)
+                commands = build_matrix_commands(
+                    config,
+                    "confirmation",
+                    root / "results" / name.removesuffix(".json"),
+                )
+                self.assertEqual(len(commands), run_count)
+                self.assertTrue(
+                    all("--no-inference" not in command for command in commands)
+                )
+                self.assertTrue(
+                    all(
+                        command[command.index("--seed") + 1] == "42"
+                        for command in commands
+                    )
+                )
+                self.assertTrue(
+                    all(
+                        command[command.index("--limit") + 1]
+                        == confirmation_limit
+                        for command in commands
+                    )
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

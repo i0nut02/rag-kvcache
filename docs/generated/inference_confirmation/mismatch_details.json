@@ -1,0 +1,35 @@
+[
+  {
+    "article_id": "52845",
+    "candidate_label": "B",
+    "comparison": "06b_segmented_uncached_zipf_fp16_vs_full",
+    "gold_label": "D",
+    "max_label_logit_delta": 0.046875,
+    "reference_label": "D",
+    "request_id": "52845_91NAQ9LY_5",
+    "request_index": 26,
+    "workload": "zipf"
+  },
+  {
+    "article_id": "52845",
+    "candidate_label": "B",
+    "comparison": "06b_segmented_uncached_zipf_fp16_vs_full",
+    "gold_label": "D",
+    "max_label_logit_delta": 0.046875,
+    "reference_label": "D",
+    "request_id": "52845_91NAQ9LY_5",
+    "request_index": 89,
+    "workload": "zipf"
+  },
+  {
+    "article_id": "20064",
+    "candidate_label": "A",
+    "comparison": "05_document_lru_random_int8_4gib_vs_segmented",
+    "gold_label": "C",
+    "max_label_logit_delta": 0.203125,
+    "reference_label": "C",
+    "request_id": "20064_CU1CDFL8_6",
+    "request_index": 95,
+    "workload": "random"
+  }
+]

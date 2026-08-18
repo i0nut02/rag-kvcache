@@ -1,0 +1,70 @@
+{
+  "command": "matrix",
+  "matrix_type": "selected-fixed-block-sensitivity",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.test",
+  "split": "test",
+  "verify_counts": true,
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "tokenizer": "Qwen/Qwen2.5-1.5B-Instruct",
+  "device": "cuda",
+  "dtype": "float16",
+  "no_inference": true,
+  "output_root": "results/fixed_block_sensitivity",
+  "seed": 42,
+  "budget_mb": 4096,
+  "profiles": {
+    "smoke": {"limit": 10},
+    "confirmation": {"limit": 50},
+    "full": {"limit": null}
+  },
+  "runs": [
+    {
+      "name": "fixed_block_16_random_fp16_4gib",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 16
+    },
+    {
+      "name": "fixed_block_64_random_fp16_4gib",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 64
+    },
+    {
+      "name": "fixed_block_256_random_fp16_4gib",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 256
+    },
+    {
+      "name": "fixed_block_16_zipf_fp16_4gib",
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 16
+    },
+    {
+      "name": "fixed_block_64_zipf_fp16_4gib",
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 64
+    },
+    {
+      "name": "fixed_block_256_zipf_fp16_4gib",
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 256
+    }
+  ]
+}

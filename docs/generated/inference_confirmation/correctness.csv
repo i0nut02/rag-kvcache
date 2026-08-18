@@ -1,0 +1,7 @@
+accuracy_delta_vs_segmented,agreement_vs_segmented,cached_accuracy,cached_hard_accuracy,hard_accuracy_delta_vs_segmented,label,label_mismatches,max_label_logit_delta_vs_segmented,mean_max_label_logit_delta_vs_segmented,run,segmented_accuracy,segmented_hard_accuracy,storage,unique_label_mismatches,workload
+0.0,1.0,0.51,0.35714285714285715,0.0,Document LRU FP16,0,0.0,0.0,02_document_lru_random_fp16_4gib,0.51,0.35714285714285715,accelerator-fp16,0,random
+0.0,1.0,0.51,0.35714285714285715,0.0,Fixed-block LRU FP16,0,0.046875,0.00484375,03_fixed_block_lru_random_fp16_4gib,0.51,0.35714285714285715,accelerator-fp16,0,random
+0.0,1.0,0.51,0.35714285714285715,0.0,Radix LRU FP16,0,0.0625,0.0015625,04_radix_lru_random_fp16_4gib,0.51,0.35714285714285715,accelerator-fp16,0,random
+-0.010000000000000009,0.99,0.5,0.3392857142857143,-0.01785714285714285,Document LRU CPU INT8,1,0.828125,0.085625,05_document_lru_random_int8_4gib,0.51,0.35714285714285715,cpu-int8,1,random
+0.0,1.0,0.6,0.5178571428571429,0.0,Document LRU FP16,0,0.0,0.0,07_document_lru_zipf_fp16_4gib,0.6,0.5178571428571429,accelerator-fp16,0,zipf
+0.0,1.0,0.6,0.5178571428571429,0.0,Document GDSF FP16,0,0.0,0.0,08_document_gdsf_zipf_fp16_4gib,0.6,0.5178571428571429,accelerator-fp16,0,zipf

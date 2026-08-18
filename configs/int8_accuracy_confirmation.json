@@ -1,0 +1,41 @@
+{
+  "command": "matrix",
+  "matrix_type": "selected-int8-accuracy-confirmation",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.dev",
+  "split": "dev",
+  "verify_counts": true,
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "tokenizer": "Qwen/Qwen2.5-1.5B-Instruct",
+  "device": "cuda",
+  "dtype": "float16",
+  "no_inference": false,
+  "output_root": "results/int8_accuracy",
+  "seed": 42,
+  "budget_mb": 4096,
+  "block_tokens": 16,
+  "agreement_atol": 0.0625,
+  "progress_every": 10,
+  "profiles": {
+    "smoke": {"limit": 10},
+    "confirmation": {"limit": 300},
+    "full": {"limit": null}
+  },
+  "runs": [
+    {
+      "name": "01_segmented_random_fp16",
+      "workload": "random",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "02_document_lru_random_int8_4gib",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "cpu-int8",
+      "cache_strategy": "document",
+      "reference_run": "01_segmented_random_fp16"
+    }
+  ]
+}

@@ -21,7 +21,14 @@ from .inference.tensors import STORAGE_MODES
 from .inference.reference import attach_offline_reference, load_reference_jsonl
 from .prompt import PROMPT_VERSION
 from .matrix import add_matrix_parser, run_matrix
-from .reporting import make_primary_figures, summarize, write_csv, write_jsonl, write_manifest
+from .reporting import (
+    analyze_inference_confirmation,
+    make_primary_figures,
+    summarize,
+    write_csv,
+    write_jsonl,
+    write_manifest,
+)
 from .schema import PREFILL_CALIBRATION_SCHEMA_VERSION, RESULT_SCHEMA_VERSION
 from .simulation import (
     article_sizes,
@@ -200,6 +207,14 @@ def build_parser() -> argparse.ArgumentParser:
     collect = sub.add_parser("collect", help="combine simulation/inference summary CSV files")
     collect.add_argument("inputs", nargs="+", type=Path)
     collect.add_argument("--output", type=Path, required=True)
+    analyze = sub.add_parser(
+        "analyze-inference",
+        help="validate and analyze the selected fair inference confirmation suite",
+    )
+    analyze.add_argument("results_dir", type=Path)
+    analyze.add_argument("--output-dir", type=Path, required=True)
+    analyze.add_argument("--bootstrap-samples", type=_positive_int, default=20_000)
+    analyze.add_argument("--seed", type=int, default=42)
     add_matrix_parser(sub)
     return parser
 
@@ -259,6 +274,16 @@ def main(argv: list[str] | None = None) -> int:
             },
         )
         print(f"wrote {len(rows)} summaries to {args.output}")
+        return 0
+    if args.command == "analyze-inference":
+        paths = analyze_inference_confirmation(
+            args.results_dir,
+            args.output_dir,
+            bootstrap_samples=args.bootstrap_samples,
+            seed=args.seed,
+        )
+        for path in paths:
+            print(path)
         return 0
     if args.command == "matrix":
         return run_matrix(args, main)
