@@ -182,6 +182,13 @@ python experiments/run_quality.py run \
   --output results/dev_uncached.jsonl
 ```
 
+For a fair execution-path control, combine `--policy none` with
+`--baseline-mode segmented`. This keeps the shared L0 root pinned, recomputes
+the complete article and question on every request, and discards the transient
+article KV without inserting it into any cache. It reports zero article-token
+and byte reuse. The selected random/Zipf control matrix and Colab commands are
+in [docs/inference_confirmation.md](docs/inference_confirmation.md).
+
 The older `simulate` command remains available for multi-policy trace sweeps and
 farthest-next-use comparisons. It accepts absolute `--budget-mb` values or
 working-set percentages. The matrix uses seed 42 and 4/8 GiB budgets. Fast

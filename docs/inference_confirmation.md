@@ -93,3 +93,64 @@ Inspect at least these columns: `ttft_mean_s`, `ttft_p50_s`, `ttft_p95_s`,
 `reference_tolerance_violations`, `accuracy_delta_vs_fp16`, and accelerator/RSS
 memory peaks. Do not mix these measured inference values with the simulated
 prefill times in the no-inference matrix.
+
+## Segmented no-document-cache control
+
+The first confirmation exposed an execution-path confound: a document-cache
+miss still ran substantially faster than the one-forward uncached baseline.
+Because the pinned L0 root is only a small part of the prompt, that difference
+cannot be attributed to L0 reuse alone. The fair control therefore executes the
+same `L0 -> article -> question/options` path as a document-cache miss but never
+inserts or retains article KV between requests.
+
+This is selected with `--policy none --baseline-mode segmented`. Its article
+reuse, avoided prefill tokens, cache bytes, insertions, and evictions must all
+remain zero. L0 is still recorded as a root-only tree match so that the generic
+prefix metrics retain their existing definitions; use `article_token_hit_rate`
+when verifying that this control has no document reuse.
+
+After pulling the update in the same Colab checkout, inspect and run the
+10-query smoke control:
+
+```python
+%cd /content/rag-kvcache
+!git pull --ff-only
+!python -m unittest discover -s tests -q
+!python experiments/run_quality.py matrix \
+    configs/segmented_baseline_confirmation.json \
+    --profile smoke --show-commands
+!python experiments/run_quality.py matrix \
+    configs/segmented_baseline_confirmation.json \
+    --profile smoke --execute --resume
+```
+
+Then execute the 100-query control:
+
+```python
+!python experiments/run_quality.py matrix \
+    configs/segmented_baseline_confirmation.json \
+    --profile confirmation --execute --resume
+```
+
+The configuration deliberately uses the same output directory and the same
+names for the two full uncached baselines as the original confirmation matrix.
+Consequently, `--resume` skips those expensive baselines when they are still
+present and runs only:
+
+- `dev_confirmation_01b_segmented_uncached_random_fp16.jsonl`
+- `dev_confirmation_06b_segmented_uncached_zipf_fp16.jsonl`
+
+If either full baseline is absent, the matrix regenerates it before its matched
+segmented run. Each segmented result uses that full JSONL as an offline
+correctness reference. Once both controls finish, recollect all summaries:
+
+```python
+!python experiments/run_quality.py collect \
+    results/inference_confirmation/confirmation/*.summary.csv \
+    --output results/inference_confirmation/confirmation/all_summaries.csv
+```
+
+For the report, present two speedups separately: full uncached mean TTFT divided
+by cached mean TTFT is the end-to-end system improvement; segmented-control mean
+TTFT divided by cached mean TTFT isolates cross-request article-KV reuse. Do not
+describe the small pinned L0 root as a separate cache strategy.

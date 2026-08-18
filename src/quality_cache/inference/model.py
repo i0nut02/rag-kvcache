@@ -282,6 +282,111 @@ class QualityModelRunner:
             **self.memory_stats(),
         }
 
+    def serve_segmented_uncached(
+        self,
+        request: QualityRequest,
+        *,
+        storage: str = "cpu-fp16",
+        block_tokens: int = 16,
+        cache_strategy: str = "document",
+    ) -> dict[str, Any]:
+        """Measure the cached execution path without retaining article KV.
+
+        L0 remains pinned exactly as it does for every article-cache strategy.
+        The article is prefilled from scratch on every request, the question is
+        scored against that transient prefix, and the resulting article KV is
+        discarded instead of being inserted into a cache.  This isolates the
+        benefit of cross-request article reuse from prompt segmentation.
+        """
+        l0_ids, article_ids, suffix_ids = encode_parts(
+            self.tokenizer, request.article_text, request.question
+        )
+        total_prompt_tokens = len(l0_ids) + len(article_ids) + len(suffix_ids)
+        document_tree_total_tokens = len(l0_ids) + len(article_ids)
+        document_tree_hit_ratio = len(l0_ids) / max(1, document_tree_total_tokens)
+        cache_hit_ratio = len(l0_ids) / max(1, total_prompt_tokens)
+
+        started = time.perf_counter()
+        article_started = time.perf_counter()
+        transient_prefix = self._prefill(article_ids, past=self.l0_cache)
+        self._synchronize()
+        prefill_s = time.perf_counter() - article_started
+        score = self.score_suffix(
+            suffix_ids, transient_prefix, options=request.question.options
+        )
+        self._synchronize()
+        ttft_s = time.perf_counter() - started
+        del transient_prefix
+
+        return {
+            "result_schema_version": RESULT_SCHEMA_VERSION,
+            "request_id": request.request_id,
+            "article_id": request.article_id,
+            "cache_hit": False,
+            "partial_cache_hit": len(l0_ids) > 0,
+            "partial_article_hit": len(l0_ids) > 0,
+            "partial_article_text_hit": False,
+            "partial_document_tree_hit": len(l0_ids) > 0,
+            "root_only_hit": len(l0_ids) > 0,
+            "cache_hit_ratio": cache_hit_ratio,
+            "article_cache_hit_ratio": document_tree_hit_ratio,
+            "article_text_cache_hit_ratio": 0.0,
+            "document_tree_hit_ratio": document_tree_hit_ratio,
+            "cached_prompt_tokens": len(l0_ids),
+            "total_prompt_tokens": total_prompt_tokens,
+            "document_tree_cached_tokens": len(l0_ids),
+            "document_tree_total_tokens": document_tree_total_tokens,
+            "uncached_suffix_tokens": len(suffix_ids),
+            "matched_prefix_tokens": 0,
+            "matched_cache_bytes": 0,
+            "article_tokens": len(article_ids),
+            "article_bytes": self.estimate_article_bytes(
+                request, storage, block_tokens, cache_strategy
+            ),
+            "matched_prefill_tokens": 0,
+            "avoided_prefill_tokens": 0,
+            "lookup_s": 0.0,
+            "load_s": 0.0,
+            "transfer_s": 0.0,
+            "dequant_s": 0.0,
+            "policy_s": 0.0,
+            "prefill_s": prefill_s,
+            "ttft_s": ttft_s,
+            "predicted_label": score.label,
+            "label_scores": score.scores,
+            "gold_label": request.question.answer_letter,
+            "difficult": request.question.difficult,
+            "uncached_label": None,
+            "fp16_reference_label": None,
+            "reference_agreement": None,
+            "reference_max_label_logit_delta": None,
+            "cache_bytes": 0,
+            "useful_bytes": 0,
+            "shared_bytes": 0,
+            "stranded_bytes": 0,
+            "metadata_bytes": 0,
+            "cache_footprint_bytes": 0,
+            "budget_bytes": 0,
+            "occupancy": 0.0,
+            "root_nodes": 1,
+            "document_tree_nodes": 1,
+            "cached_articles": 0,
+            "cached_documents": 0,
+            "cached_blocks": 0,
+            "radix_nodes": 0,
+            "cached_tokens": 0,
+            "insertions": 0,
+            "evictions": 0,
+            "policy": "none",
+            "cache_strategy": "none",
+            "baseline_mode": "segmented",
+            "inference_path": "segmented-uncached",
+            "l0_reused": True,
+            "prefill_cost_model": self.prefill_cost_model,
+            "model_weights_loaded": True,
+            **self.memory_stats(),
+        }
+
     def serve(
         self,
         request: QualityRequest,

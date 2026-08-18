@@ -100,6 +100,11 @@ confirmation profiles on QuALITY dev; the exact rationale, run list, and staged
 commands are in
 [`inference_confirmation.md`](inference_confirmation.md).
 
+After that matrix, run the two segmented no-document-cache controls described
+in the same document. They reuse the existing full uncached JSONLs with
+`--resume` and isolate article-cache reuse from the effect of executing the
+prompt as L0, article, and question segments.
+
 ## 5. Preserve results before the Colab runtime expires
 
 ```python

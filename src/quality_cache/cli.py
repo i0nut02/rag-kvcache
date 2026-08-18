@@ -135,6 +135,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--policy", choices=["none", "lru", "lfu", "fifo", "gdsf"], default="lru")
     run.add_argument(
+        "--baseline-mode",
+        choices=["full", "segmented"],
+        default="full",
+        help=(
+            "uncached inference path used with --policy none: 'full' executes "
+            "the complete prompt in one forward, while 'segmented' reuses only "
+            "the pinned L0 root and recomputes the article and question without "
+            "retaining article KV"
+        ),
+    )
+    run.add_argument(
         "--cache-strategy", choices=list(CACHE_STRATEGIES), default="document"
     )
     budget = run.add_mutually_exclusive_group()
@@ -512,8 +523,19 @@ def _run(args, articles) -> int:
         raise ValueError(
             "--reference-jsonl and --validate-agreement are mutually exclusive"
         )
-    if args.reference_jsonl is not None and args.policy == "none":
-        raise ValueError("--reference-jsonl is only applicable to a cached run")
+    if args.baseline_mode == "segmented" and args.policy != "none":
+        raise ValueError("--baseline-mode segmented requires --policy none")
+    if args.baseline_mode == "segmented" and args.no_inference:
+        raise ValueError("--baseline-mode segmented requires inference")
+    if (
+        args.reference_jsonl is not None
+        and args.policy == "none"
+        and args.baseline_mode != "segmented"
+    ):
+        raise ValueError(
+            "--reference-jsonl with --policy none requires "
+            "--baseline-mode segmented"
+        )
     if args.strict_reference and args.reference_jsonl is None:
         raise ValueError("--strict-reference requires --reference-jsonl")
     if not args.no_inference and args.prefill_calibration is not None:
@@ -613,15 +635,22 @@ def _run(args, articles) -> int:
     rows = []
     serving_started = time.perf_counter()
     for index, request in enumerate(trace):
-        row = (
-            runner.serve_uncached(
+        if cache is None and args.baseline_mode == "segmented":
+            row = runner.serve_segmented_uncached(
                 request,
                 storage=args.storage,
                 block_tokens=args.block_tokens,
                 cache_strategy=args.cache_strategy,
             )
-            if cache is None
-            else runner.serve(
+        elif cache is None:
+            row = runner.serve_uncached(
+                request,
+                storage=args.storage,
+                block_tokens=args.block_tokens,
+                cache_strategy=args.cache_strategy,
+            )
+        else:
+            row = runner.serve(
                 request,
                 cache,
                 storage=args.storage,
@@ -630,7 +659,6 @@ def _run(args, articles) -> int:
                 validate_agreement=args.validate_agreement,
                 agreement_atol=args.agreement_atol,
             )
-        )
         row.update({
             "result_schema_version": RESULT_SCHEMA_VERSION,
             "request_index": index,
@@ -646,6 +674,13 @@ def _run(args, articles) -> int:
             "model": args.model,
             "execution_mode": "no-inference" if args.no_inference else "inference",
             "cache_strategy": args.cache_strategy if cache is not None else "none",
+            "baseline_mode": args.baseline_mode if cache is None else None,
+            "inference_path": (
+                "article-cache"
+                if cache is not None
+                else f"{args.baseline_mode}-uncached"
+            ),
+            "l0_reused": cache is not None or args.baseline_mode == "segmented",
             "block_tokens": args.block_tokens,
             "prefill_is_simulated": args.no_inference,
             "offline_prefill_s": offline_prefill_s,
@@ -689,6 +724,13 @@ def _run(args, articles) -> int:
         "model": args.model,
         "execution_mode": "no-inference" if args.no_inference else "inference",
         "cache_strategy": args.cache_strategy if cache is not None else "none",
+        "baseline_mode": args.baseline_mode if cache is None else None,
+        "inference_path": (
+            "article-cache"
+            if cache is not None
+            else f"{args.baseline_mode}-uncached"
+        ),
+        "l0_reused": cache is not None or args.baseline_mode == "segmented",
         "block_tokens": args.block_tokens,
         "prefill_is_simulated": args.no_inference,
         "budget_bytes": budget_bytes,
@@ -753,6 +795,7 @@ def _manifest(args, run_type, runner=None):
             "no-inference" if getattr(args, "no_inference", False) else run_type
         ),
         "cache_strategy": getattr(args, "cache_strategy", "document"),
+        "baseline_mode": getattr(args, "baseline_mode", None),
         "block_tokens": getattr(args, "block_tokens", None),
         "dtype": getattr(args, "dtype", "float16"),
         "agreement_atol": getattr(args, "resolved_agreement_atol", None),

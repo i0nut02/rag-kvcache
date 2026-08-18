@@ -120,6 +120,41 @@ class ExperimentConfigTest(unittest.TestCase):
             all("--validate-agreement" not in command for command in smoke)
         )
 
+    def test_segmented_baseline_reuses_existing_full_references(self):
+        root = Path(__file__).resolve().parents[1]
+        config = load_matrix(root / "configs" / "segmented_baseline_confirmation.json")
+        output = root / "results" / "inference_confirmation" / "confirmation"
+        commands = build_matrix_commands(config, "confirmation", output)
+
+        self.assertEqual(len(commands), 4)
+        segmented = [
+            command
+            for command in commands
+            if command[command.index("--baseline-mode") + 1] == "segmented"
+        ]
+        self.assertEqual(len(segmented), 2)
+        self.assertTrue(all("--policy" in command for command in segmented))
+        self.assertTrue(
+            all(command[command.index("--policy") + 1] == "none" for command in segmented)
+        )
+        self.assertTrue(all("--budget-mb" not in command for command in segmented))
+        self.assertTrue(all("--reference-jsonl" in command for command in segmented))
+        self.assertTrue(
+            all(command[command.index("--limit") + 1] == "100" for command in commands)
+        )
+
+        references = {
+            Path(command[command.index("--reference-jsonl") + 1]).name
+            for command in segmented
+        }
+        self.assertEqual(
+            references,
+            {
+                "dev_confirmation_01_uncached_random_fp16.jsonl",
+                "dev_confirmation_06_uncached_zipf_fp16.jsonl",
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -161,6 +161,22 @@ def _validate_selected_runs(config: dict) -> None:
         no_inference = bool(
             run.get("no_inference", config.get("no_inference", False))
         )
+        baseline_mode = str(
+            run.get("baseline_mode", config.get("baseline_mode", "full"))
+        )
+        if baseline_mode not in {"full", "segmented"}:
+            raise ValueError(
+                f"selected run {name!r} has invalid baseline_mode "
+                f"{baseline_mode!r}"
+            )
+        if baseline_mode == "segmented" and run["policy"] != "none":
+            raise ValueError(
+                f"selected run {name!r} uses segmented baseline with caching"
+            )
+        if baseline_mode == "segmented" and no_inference:
+            raise ValueError(
+                f"selected run {name!r} requires inference for segmented baseline"
+            )
         if config["split"] == "test" and not no_inference:
             raise ValueError(
                 f"selected run {name!r} requires labelled train or dev data"
@@ -232,6 +248,9 @@ def _build_selected_commands(
         no_inference = bool(
             run.get("no_inference", config.get("no_inference", False))
         )
+        baseline_mode = str(
+            run.get("baseline_mode", config.get("baseline_mode", "full"))
+        )
         block_setting = run.get("block_tokens", config.get("block_tokens", 16))
         if isinstance(block_setting, dict):
             block_setting = block_setting.get(strategy, 16)
@@ -273,6 +292,8 @@ def _build_selected_commands(
             command.extend(
                 ("--budget-mb", str(run.get("budget_mb", config.get("budget_mb"))))
             )
+        else:
+            command.extend(("--baseline-mode", baseline_mode))
         if run.get("max_articles") is not None:
             command.extend(("--max-articles", str(run["max_articles"])))
         if run.get("offline_prefill", config.get("offline_prefill", False)):
