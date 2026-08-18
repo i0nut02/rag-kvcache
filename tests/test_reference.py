@@ -16,6 +16,7 @@ class OfflineReferenceTest(unittest.TestCase):
     def _reference(self):
         return {
             "result_schema_version": RESULT_SCHEMA_VERSION,
+            "request_index": 0,
             "request_id": "q1",
             "article_id": "a1",
             "predicted_label": "B",
@@ -40,6 +41,7 @@ class OfflineReferenceTest(unittest.TestCase):
                 expected_seed=42,
             )
         candidate = {
+            "request_index": 0,
             "request_id": "q1",
             "article_id": "a1",
             "predicted_label": "B",
@@ -55,8 +57,9 @@ class OfflineReferenceTest(unittest.TestCase):
 
     def test_fp16_delta_is_enforced_but_int8_delta_is_reported(self):
         reference = self._reference()
-        references = {"q1": reference}
+        references = {(0, "q1"): reference}
         candidate = {
+            "request_index": 0,
             "request_id": "q1",
             "article_id": "a1",
             "predicted_label": "A",
@@ -85,6 +88,33 @@ class OfflineReferenceTest(unittest.TestCase):
         )
         self.assertFalse(int8["reference_agreement"])
         self.assertEqual(int8["reference_max_label_logit_delta"], 2.0)
+
+    def test_repeated_request_ids_are_matched_by_trace_position(self):
+        first = self._reference()
+        second = {**self._reference(), "request_index": 1}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "zipf-reference.jsonl"
+            path.write_text(
+                json.dumps(first) + "\n" + json.dumps(second) + "\n",
+                encoding="utf-8",
+            )
+            references = load_reference_jsonl(path)
+        self.assertEqual(len(references), 2)
+        candidate = {
+            "request_index": 1,
+            "request_id": "q1",
+            "article_id": "a1",
+            "predicted_label": "B",
+            "label_scores": {"A": 1.0, "B": 2.0, "C": 0.5, "D": -1.0},
+            "gold_label": "B",
+        }
+        attach_offline_reference(
+            candidate,
+            references,
+            storage="accelerator-fp16",
+            agreement_atol=0.0625,
+        )
+        self.assertTrue(candidate["reference_agreement"])
 
 
 if __name__ == "__main__":

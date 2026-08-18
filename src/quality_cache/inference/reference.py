@@ -11,6 +11,7 @@ from ..schema import RESULT_SCHEMA_VERSION
 
 
 LABELS = "ABCD"
+ReferenceKey = tuple[int, str]
 
 
 def load_reference_jsonl(
@@ -19,12 +20,12 @@ def load_reference_jsonl(
     expected_model: str | None = None,
     expected_workload: str | None = None,
     expected_seed: int | None = None,
-) -> dict[str, dict[str, Any]]:
+) -> dict[ReferenceKey, dict[str, Any]]:
     """Load and validate an uncached FP16 per-request result file."""
     path = Path(path)
     if not path.is_file():
         raise ValueError(f"reference JSONL does not exist: {path}")
-    references: dict[str, dict[str, Any]] = {}
+    references: dict[ReferenceKey, dict[str, Any]] = {}
     with path.open(encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             if not line.strip():
@@ -43,10 +44,13 @@ def load_reference_jsonl(
                 expected_workload=expected_workload,
                 expected_seed=expected_seed,
             )
-            request_id = str(row["request_id"])
-            if request_id in references:
-                raise ValueError(f"duplicate reference request_id: {request_id}")
-            references[request_id] = row
+            key = _reference_key(row, f"reference row at {path}:{line_number}")
+            if key in references:
+                raise ValueError(
+                    "duplicate reference request position: "
+                    f"index={key[0]}, request_id={key[1]}"
+                )
+            references[key] = row
     if not references:
         raise ValueError(f"reference JSONL is empty: {path}")
     return references
@@ -54,17 +58,21 @@ def load_reference_jsonl(
 
 def attach_offline_reference(
     row: dict[str, Any],
-    references: dict[str, dict[str, Any]],
+    references: dict[ReferenceKey, dict[str, Any]],
     *,
     storage: str,
     agreement_atol: float,
     strict: bool = False,
 ) -> None:
     """Attach agreement fields without executing a second model forward."""
-    request_id = str(row.get("request_id"))
-    reference = references.get(request_id)
+    key = _reference_key(row, "candidate row")
+    request_index, request_id = key
+    reference = references.get(key)
     if reference is None:
-        raise ValueError(f"request {request_id!r} is absent from the reference JSONL")
+        raise ValueError(
+            "request position is absent from the reference JSONL: "
+            f"index={request_index}, request_id={request_id!r}"
+        )
     if row.get("article_id") != reference.get("article_id"):
         raise ValueError(f"article mismatch for reference request {request_id!r}")
     if row.get("gold_label") != reference.get("gold_label"):
@@ -117,6 +125,7 @@ def _validate_reference_row(
         raise ValueError(f"reference row must use accelerator-fp16 at {where}")
     if not row.get("request_id"):
         raise ValueError(f"reference row has no request_id at {where}")
+    _reference_key(row, f"reference row at {where}")
     if row.get("predicted_label") not in LABELS:
         raise ValueError(f"reference row has an invalid predicted label at {where}")
     _label_scores(row, f"reference row at {where}")
@@ -147,3 +156,16 @@ def _label_scores(row: dict[str, Any], description: str) -> dict[str, float]:
             raise ValueError(f"{description} has a non-finite {label} score")
         parsed[label] = value
     return parsed
+
+
+def _reference_key(row: dict[str, Any], description: str) -> ReferenceKey:
+    try:
+        request_index = int(row["request_index"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"{description} has no integer request_index") from error
+    if request_index < 0:
+        raise ValueError(f"{description} has a negative request_index")
+    request_id = row.get("request_id")
+    if not request_id:
+        raise ValueError(f"{description} has no request_id")
+    return request_index, str(request_id)

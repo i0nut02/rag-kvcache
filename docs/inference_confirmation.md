@@ -20,10 +20,12 @@ resulting eight-run suite on the labelled QuALITY development split and
 
 All cached runs use a 4 GiB tensor budget and seed 42. Each cached random run
 uses run 1 as an offline FP16 reference; each cached Zipf run uses run 6. The
-runner joins requests by ID and compares all A/B/C/D scores and predicted labels
-without executing a second model forward. Label disagreements, maximum logit
-deltas, and FP16 tolerance violations are recorded rather than aborting a long
-measurement. `--strict-reference` remains available for fail-fast smoke tests.
+runner joins requests by trace position and request ID, then compares all
+A/B/C/D scores and predicted labels without executing a second model forward.
+The positional component is necessary because Zipf sampling can cycle back to
+the same real question. Label disagreements, maximum logit deltas, and FP16
+tolerance violations are recorded rather than aborting a long measurement.
+`--strict-reference` remains available for fail-fast smoke tests.
 
 This offline-reference design is important on a 15 GiB T4. Keeping a nearly
 full 4 GiB GPU KV cache resident while executing another complete 6k-token
