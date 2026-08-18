@@ -94,10 +94,10 @@ for FP16); the matrix records violations instead of discarding a long run. Add
 Do not use the test split for accuracy: its labels are withheld. It is suitable
 for cache-hit and latency traces.
 
-For the next experiment, use the curated eight-run matrix instead of manually
-expanding every strategy and policy. It provides 10-query smoke and 100-query
-confirmation profiles on QuALITY dev; the exact rationale, run list, and staged
-commands are in
+To reproduce the initial experiment, use the curated eight-run matrix instead
+of manually expanding every strategy and policy. It provides 10-query smoke and
+100-query confirmation profiles on QuALITY dev; the exact rationale, run list,
+and staged commands are in
 [`inference_confirmation.md`](inference_confirmation.md).
 
 After that matrix, run the two segmented no-document-cache controls described
@@ -105,11 +105,17 @@ in the same document. They reuse the existing full uncached JSONLs with
 `--resume` and isolate article-cache reuse from the effect of executing the
 prompt as L0, article, and question segments.
 
+Those runs and the targeted fixed-block, INT8, and timing follow-ups are now
+complete. Their results are in [`results.md`](results.md); the corresponding
+configs are `fixed_block_inference.json`, `int8_accuracy_confirmation.json`,
+and `timing_repetitions.json` under `configs/`. Do not rerun them unless you are
+checking reproducibility on a new accelerator.
+
 ## 5. Preserve results before the Colab runtime expires
 
 ```python
 from google.colab import files
-!zip -qr quality-colab-results.zip results/colab
+!zip -qr quality-colab-results.zip results
 files.download("quality-colab-results.zip")
 ```
 

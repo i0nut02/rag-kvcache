@@ -1,5 +1,9 @@
 # Report blueprint
 
+The consolidated measured results, decisions, and artifact hashes are in
+[`results.md`](results.md). This page defines how those results should be
+structured in the final paper.
+
 ## Scope and research questions
 
 QuALITY is document-grounded multiple-choice QA rather than open-corpus RAG.
@@ -28,8 +32,9 @@ Report grouped, seeded random, and Zipf(1.1) workloads. Use seed 42 for
 synthetic traces. Separate cold start from steady
 state. Compare document, 16-token fixed-block, and radix caches with LRU, LFU,
 and GDSF at 4 and 8 GiB. Fast checks use 10 requests, confirmation runs use
-50, and the full profile uses every test question.
-Repeat fixed-block sensitivity at 64 and 256 tokens.
+50, and the full profile uses every test question. The completed sensitivity
+study selects 256-token blocks as the tuned generic inference baseline; retain
+the 16-token result only to explain the block-churn failure mode.
 
 The completed trace findings and metric interpretation are recorded in
 [`no_inference_results.md`](no_inference_results.md).
@@ -61,16 +66,19 @@ workspace while the accelerator KV cache is resident. Report both label
 agreement and the distribution/count of FP16 absolute-tolerance violations;
 do not silently discard numerically different but label-identical requests.
 
-The final inference table must use segmented execution with no retained article
+The final inference table uses segmented execution with no retained article
 KV as the cache-only baseline. The original full one-forward baseline remains a
 separate end-to-end system comparison. The checked-in analysis and figures are
 in
 [`generated/inference_confirmation`](generated/inference_confirmation/results.md):
 document and radix FP16 achieve about `1.19x` cache-only speedup on random
 traffic, document FP16 achieves about `2.19x` on Zipf traffic, and 16-token
-fixed-block caching is slower than the fair control. CPU INT8 changes one label
-out of 100 and therefore remains a measured quality tradeoff pending the larger
-confirmation.
+fixed-block caching is slower than the fair control. Three timing repetitions
+refine the document result to median paired speedups of `1.250x` on random and
+`2.194x` on Zipf. The tuned 256-token block reaches `1.16x` and `2.07x` but
+remains slower than the document unit. The 300-request CPU INT8 confirmation
+changes 2/300 labels, reduces accuracy by 0.67 percentage points, and gives a
+`1.569x` mean speedup; present it as a measured Pareto tradeoff.
 
 ## Validity and limitations
 
@@ -84,5 +92,6 @@ model tokenizer and measured tensor bytes. CPU transfer and INT8 dequantization
 must remain inside TTFT. Results apply to repeated stable-document QA, not to
 arbitrary retrieved-document composition or rapidly changing corpora.
 
-The prioritized remaining experiments and the arena/Triton extension are
+The only remaining model experiment is a small matched-working-set-fraction
+check with Qwen2.5-0.5B. The arena/Triton extension and its exit criteria are
 specified in [`next_steps.md`](next_steps.md).

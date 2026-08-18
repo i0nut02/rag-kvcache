@@ -185,6 +185,7 @@ class ExperimentConfigTest(unittest.TestCase):
     def test_follow_up_inference_configs_keep_seed_42_and_selected_scope(self):
         root = Path(__file__).resolve().parents[1]
         expected = {
+            "fixed_block_inference.json": (6, "100"),
             "int8_accuracy_confirmation.json": (2, "300"),
             "timing_repetitions.json": (8, "100"),
         }

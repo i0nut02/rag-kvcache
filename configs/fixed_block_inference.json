@@ -1,0 +1,82 @@
+{
+  "command": "matrix",
+  "matrix_type": "selected-fixed-block-inference",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.dev",
+  "split": "dev",
+  "verify_counts": true,
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "tokenizer": "Qwen/Qwen2.5-1.5B-Instruct",
+  "device": "cuda",
+  "dtype": "float16",
+  "no_inference": false,
+  "output_root": "results/fixed_block_inference",
+  "seed": 42,
+  "budget_mb": 4096,
+  "agreement_atol": 0.0625,
+  "progress_every": 10,
+  "profiles": {
+    "smoke": {
+      "limit": 10
+    },
+    "confirmation": {
+      "limit": 100
+    },
+    "full": {
+      "limit": null
+    }
+  },
+  "runs": [
+    {
+      "name": "01_segmented_random_fp16",
+      "workload": "random",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "02_fixed_block_64_random_fp16_4gib",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 64,
+      "reference_run": "01_segmented_random_fp16"
+    },
+    {
+      "name": "03_fixed_block_256_random_fp16_4gib",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 256,
+      "reference_run": "01_segmented_random_fp16"
+    },
+    {
+      "name": "04_segmented_zipf_fp16",
+      "workload": "zipf",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "05_fixed_block_64_zipf_fp16_4gib",
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 64,
+      "reference_run": "04_segmented_zipf_fp16"
+    },
+    {
+      "name": "06_fixed_block_256_zipf_fp16_4gib",
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 256,
+      "reference_run": "04_segmented_zipf_fp16"
+    }
+  ]
+}

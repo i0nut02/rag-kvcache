@@ -121,13 +121,20 @@ all useful reuse with dramatically simpler metadata and policy management.
   dequantization, and CUDA/MPS allocation are unavailable in this experiment
   and correctly appear as `NaN` or zero.
 
-## Remaining confirmation work
+## Completed inference follow-up
 
-The next phase uses the labelled QuALITY dev split and real CUDA inference on a
-small selected suite. It must measure uncached and cached TTFT, FP16 numerical
-agreement, CPU INT8 restoration/dequantization cost, label agreement, overall
-accuracy, and QuALITY-hard accuracy. A separate no-inference sensitivity check
-should compare fixed-block sizes 16, 64, and 256 without repeating the entire
-108-run matrix. The selected next phase is encoded in
-[`../configs/inference_confirmation.json`](../configs/inference_confirmation.json)
-and documented in [`inference_confirmation.md`](inference_confirmation.md).
+The labelled QuALITY dev confirmation, fixed-block sensitivity, 300-request
+INT8 comparison, and timing repetitions are complete. Their main conclusions
+are:
+
+- document FP16 has median paired speedups of `1.250x` on random and `2.194x`
+  on Zipf traffic across three runs;
+- 256 tokens is the selected fixed-block size, but the atomic document cache is
+  still faster;
+- CPU INT8 gives a `1.569x` mean speedup in the 300-request random comparison
+  and changes 2/300 labels.
+
+See [`results.md`](results.md) for the consolidated tables, metric caveats,
+mismatch details, timing ranges, and follow-up archive hashes. The original
+selected-suite procedure remains in
+[`inference_confirmation.md`](inference_confirmation.md).

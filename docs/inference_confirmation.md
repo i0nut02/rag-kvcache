@@ -179,5 +179,9 @@ The main cache-only findings are `1.19x` for document/radix FP16 and `1.33x`
 for document CPU INT8 on random traffic, and `2.19x` for document FP16 on Zipf
 traffic. The 16-token fixed-block implementation is slower than the fair
 control (`0.83x`). All FP16 cache paths preserve the segmented-path label;
-CPU INT8 changes one of 100 labels. See [`next_steps.md`](next_steps.md) for the
-targeted follow-up runs and systems implementation sequence.
+CPU INT8 changes one of 100 labels in this initial sample.
+
+The targeted follow-ups are now complete. The 256-token fixed-block run, the
+300-request INT8 comparison, and three-run timing aggregate are reported in
+[`results.md`](results.md). See [`next_steps.md`](next_steps.md) for the
+remaining second-model and arena/Triton work.

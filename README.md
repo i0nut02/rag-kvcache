@@ -9,6 +9,13 @@ multiple-choice questions. The reusable model prefix is therefore the exact
 system prompt plus the complete article. Only the question and four options are
 processed on every request.
 
+The completed 1.5B experiments show median paired cache-only speedups of
+`1.250x` on random and `2.194x` on Zipf traffic across three CUDA runs.
+Document-aware caching is faster than tuned 256-token fixed blocks, while CPU
+INT8 trades two label changes in 300 requests for a `1.569x` mean speedup and
+approximately twice the useful capacity. See the
+[consolidated results](docs/results.md) for the full evidence and limitations.
+
 ## Dataset protocol
 
 Use only the official HTML-stripped QuALITY v1.0.1 release. Each article appears
@@ -242,7 +249,8 @@ python experiments/run_quality.py analyze-inference \
 
 The current generated results are in
 [`docs/generated/inference_confirmation/results.md`](docs/generated/inference_confirmation/results.md),
-and the prioritized follow-up commands are in
+the completed follow-ups are consolidated in [`docs/results.md`](docs/results.md),
+and the remaining second-model and arena/Triton work is in
 [`docs/next_steps.md`](docs/next_steps.md).
 
 Every result receives a neighboring manifest containing the result schema and dataset checksum,
@@ -256,6 +264,10 @@ for interpreting partial-hit metrics are recorded in
 The completed ten-run real-inference confirmation and its copy-paste Colab
 commands are recorded in
 [`docs/inference_confirmation.md`](docs/inference_confirmation.md).
+The reproducible fixed-block, INT8, and timing follow-ups are encoded in
+[`configs/fixed_block_inference.json`](configs/fixed_block_inference.json),
+[`configs/int8_accuracy_confirmation.json`](configs/int8_accuracy_confirmation.json),
+and [`configs/timing_repetitions.json`](configs/timing_repetitions.json).
 
 ## Measurements and verification
 
