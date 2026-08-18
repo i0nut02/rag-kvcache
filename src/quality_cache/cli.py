@@ -18,6 +18,7 @@ from .data import (
     load_quality_split,
 )
 from .inference.tensors import STORAGE_MODES
+from .inference.reference import attach_offline_reference, load_reference_jsonl
 from .prompt import PROMPT_VERSION
 from .matrix import add_matrix_parser, run_matrix
 from .reporting import make_primary_figures, summarize, write_csv, write_jsonl, write_manifest
@@ -152,6 +153,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="measured prefill-cost JSON used by --no-inference GDSF",
     )
     run.add_argument("--validate-agreement", action="store_true")
+    run.add_argument(
+        "--reference-jsonl",
+        type=Path,
+        help=(
+            "reuse a matching uncached FP16 JSONL for agreement metrics instead "
+            "of executing an extra reference forward"
+        ),
+    )
     run.add_argument(
         "--agreement-atol",
         type=_nonnegative_float,
@@ -492,12 +501,31 @@ def _run(args, articles) -> int:
         raise ValueError("accelerator-fp16 storage requires --device cuda or mps")
     if args.no_inference and args.validate_agreement:
         raise ValueError("--validate-agreement requires inference")
+    if args.reference_jsonl is not None and args.no_inference:
+        raise ValueError("--reference-jsonl requires inference")
+    if args.reference_jsonl is not None and args.validate_agreement:
+        raise ValueError(
+            "--reference-jsonl and --validate-agreement are mutually exclusive"
+        )
+    if args.reference_jsonl is not None and args.policy == "none":
+        raise ValueError("--reference-jsonl is only applicable to a cached run")
     if not args.no_inference and args.prefill_calibration is not None:
         raise ValueError("--prefill-calibration is only used with --no-inference")
     if args.no_inference and args.offline_prefill:
         raise ValueError("--offline-prefill is not supported with --no-inference")
     if args.cache_strategy != "document" and args.max_articles is not None:
         raise ValueError("--max-articles is only supported by the document strategy")
+
+    reference_rows = (
+        load_reference_jsonl(
+            args.reference_jsonl,
+            expected_model=args.model,
+            expected_workload=args.workload,
+            expected_seed=args.seed,
+        )
+        if args.reference_jsonl is not None
+        else None
+    )
 
     if args.no_inference:
         from .inference.no_inference import NoInferenceRunner
@@ -616,6 +644,13 @@ def _run(args, articles) -> int:
             "offline_prefill_s": offline_prefill_s,
             "prefill_cost_model": runner.prefill_cost_model,
         })
+        if reference_rows is not None:
+            attach_offline_reference(
+                row,
+                reference_rows,
+                storage=args.storage,
+                agreement_atol=args.resolved_agreement_atol,
+            )
         rows.append(row)
         completed = index + 1
         if args.progress_every and (
@@ -654,6 +689,9 @@ def _run(args, articles) -> int:
         "working_set_bytes": corpus_working_set,
         "prefill_cost_model": runner.prefill_cost_model,
         "agreement_atol": args.resolved_agreement_atol,
+        "reference_mode": (
+            "offline-jsonl" if args.reference_jsonl is not None else None
+        ),
     })
     summary_json = args.output.with_suffix(".summary.json")
     summary_csv = args.output.with_suffix(".summary.csv")
@@ -726,6 +764,16 @@ def _manifest(args, run_type, runner=None):
             else None
         ),
         "prefill_cost_model": getattr(runner, "prefill_cost_model", None),
+        "reference_jsonl": (
+            str(args.reference_jsonl)
+            if getattr(args, "reference_jsonl", None) is not None
+            else None
+        ),
+        "reference_checksum": (
+            dataset_checksum(args.reference_jsonl)
+            if getattr(args, "reference_jsonl", None) is not None
+            else None
+        ),
         "arguments": {
             key: str(value) if isinstance(value, Path) else value
             for key, value in vars(args).items()

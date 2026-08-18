@@ -112,8 +112,12 @@ class ExperimentConfigTest(unittest.TestCase):
         self.assertEqual(len(cached), 6)
         self.assertTrue(all("--budget-mb" not in command for command in uncached))
         self.assertTrue(all("--budget-mb" in command for command in cached))
-        self.assertEqual(
-            sum("--validate-agreement" in command for command in smoke), 2
+        self.assertTrue(
+            all("--reference-jsonl" not in command for command in uncached)
+        )
+        self.assertTrue(all("--reference-jsonl" in command for command in cached))
+        self.assertTrue(
+            all("--validate-agreement" not in command for command in smoke)
         )
 
 

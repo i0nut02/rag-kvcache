@@ -178,6 +178,38 @@ def _validate_selected_runs(config: dict) -> None:
             )
     if len(names) != len(set(names)):
         raise ValueError("selected run names must be unique")
+    positions = {name: index for index, name in enumerate(names)}
+    for index, run in enumerate(runs):
+        reference_name = run.get("reference_run")
+        if reference_name is None:
+            continue
+        name = str(run["name"])
+        if run.get("validate_agreement", config.get("validate_agreement", False)):
+            raise ValueError(
+                f"selected run {name!r} cannot use both reference_run and "
+                "validate_agreement"
+            )
+        if reference_name not in positions:
+            raise ValueError(
+                f"selected run {name!r} has unknown reference_run {reference_name!r}"
+            )
+        if positions[reference_name] >= index:
+            raise ValueError(
+                f"reference_run {reference_name!r} must precede selected run {name!r}"
+            )
+        reference = runs[positions[reference_name]]
+        if reference["policy"] != "none":
+            raise ValueError(f"reference_run {reference_name!r} must be uncached")
+        if reference["workload"] != run["workload"]:
+            raise ValueError(
+                f"selected run {name!r} and its reference must share a workload"
+            )
+        if reference.get("seed", config.get("seed", 42)) != run.get(
+            "seed", config.get("seed", 42)
+        ):
+            raise ValueError(
+                f"selected run {name!r} and its reference must share a seed"
+            )
 
 
 def _build_selected_commands(
@@ -244,6 +276,13 @@ def _build_selected_commands(
             command.append("--no-inference")
         if run.get("validate_agreement", config.get("validate_agreement", False)):
             command.append("--validate-agreement")
+        reference_name = run.get("reference_run")
+        if reference_name is not None:
+            reference_output = (
+                output_dir
+                / f"{config['split']}_{profile}_{reference_name}.jsonl"
+            )
+            command.extend(("--reference-jsonl", str(reference_output)))
         agreement_atol = run.get("agreement_atol", config.get("agreement_atol"))
         if agreement_atol is not None:
             command.extend(("--agreement-atol", str(agreement_atol)))

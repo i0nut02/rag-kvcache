@@ -18,12 +18,17 @@ resulting eight-run suite on the labelled QuALITY development split and
 | 7 | Zipf | Document | LRU | accelerator FP16 | Policy comparison |
 | 8 | Zipf | Document | GDSF | accelerator FP16 | Policy comparison |
 
-All cached runs use a 4 GiB tensor budget and seed 42. The two document-cache
-runs with different storage formats enable `--validate-agreement`; this adds an
-untimed uncached reference forward for every request. The other cached runs do
-not repeat that expensive validation because the unit and CPU integration tests
-already exercise the underlying cache and KV reconstruction components. Their
-TTFT and accuracy are still measured normally.
+All cached runs use a 4 GiB tensor budget and seed 42. Each cached random run
+uses run 1 as an offline FP16 reference; each cached Zipf run uses run 6. The
+runner joins requests by ID and compares all A/B/C/D scores and predicted labels
+without executing a second model forward. FP16 tolerance violations still fail
+the run, while INT8 differences are measured without being rejected.
+
+This offline-reference design is important on a 15 GiB T4. Keeping a nearly
+full 4 GiB GPU KV cache resident while executing another complete 6k-token
+uncached attention pass can exhaust accelerator memory. Reusing the saved
+baseline avoids that failure and removes duplicated compute from wall time;
+the reference file and its checksum are recorded in every dependent manifest.
 
 The suite intentionally omits grouped order, LFU, 8 GiB accelerator caching,
 and most cross-products. The no-inference results already show that grouped
@@ -65,7 +70,8 @@ Zipf configurations:
     --profile confirmation --execute --resume
 ```
 
-The runner releases unused accelerator allocations between selected runs. The
+The runner releases unused accelerator allocations between selected runs. With
+`--resume`, a completed baseline is retained and reused by dependent runs. The
 `full` profile means all 2,086 dev questions and should not be launched until
 the 100-request results justify that cost.
 

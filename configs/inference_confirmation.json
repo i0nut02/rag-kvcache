@@ -33,21 +33,23 @@
       "policy": "lru",
       "storage": "accelerator-fp16",
       "cache_strategy": "document",
-      "validate_agreement": true
+      "reference_run": "01_uncached_random_fp16"
     },
     {
       "name": "03_fixed_block_lru_random_fp16_4gib",
       "workload": "random",
       "policy": "lru",
       "storage": "accelerator-fp16",
-      "cache_strategy": "fixed-block"
+      "cache_strategy": "fixed-block",
+      "reference_run": "01_uncached_random_fp16"
     },
     {
       "name": "04_radix_lru_random_fp16_4gib",
       "workload": "random",
       "policy": "lru",
       "storage": "accelerator-fp16",
-      "cache_strategy": "radix"
+      "cache_strategy": "radix",
+      "reference_run": "01_uncached_random_fp16"
     },
     {
       "name": "05_document_lru_random_int8_4gib",
@@ -55,7 +57,7 @@
       "policy": "lru",
       "storage": "cpu-int8",
       "cache_strategy": "document",
-      "validate_agreement": true
+      "reference_run": "01_uncached_random_fp16"
     },
     {
       "name": "06_uncached_zipf_fp16",
@@ -69,14 +71,16 @@
       "workload": "zipf",
       "policy": "lru",
       "storage": "accelerator-fp16",
-      "cache_strategy": "document"
+      "cache_strategy": "document",
+      "reference_run": "06_uncached_zipf_fp16"
     },
     {
       "name": "08_document_gdsf_zipf_fp16_4gib",
       "workload": "zipf",
       "policy": "gdsf",
       "storage": "accelerator-fp16",
-      "cache_strategy": "document"
+      "cache_strategy": "document",
+      "reference_run": "06_uncached_zipf_fp16"
     }
   ]
 }

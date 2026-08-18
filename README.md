@@ -141,6 +141,12 @@ python experiments/run_quality.py run \
   --output results/dev_document_512mb_inference.jsonl
 ```
 
+For larger accelerator-cache runs, avoid retaining the cache while executing a
+second full reference forward. Run an uncached baseline once and pass its JSONL
+to matched cached runs with `--reference-jsonl`. The runner joins request IDs,
+checks all A/B/C/D scores, enforces the FP16 tolerance, and records the reference
+checksum without adding another model forward to wall time.
+
 Run the requested CUDA version on a GPU host with the model and KV cache both
 resident on that GPU:
 

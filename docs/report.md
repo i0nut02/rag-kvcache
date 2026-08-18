@@ -54,6 +54,11 @@ and policy overhead, occupancy/evictions, RSS and MPS/CUDA memory. TTFT, QuALITY
 accuracy, QuALITY-hard accuracy, and label agreement require inference and
 released labels, so they are outside this test-only matrix.
 
+In the selected dev inference suite, each cached run reuses the corresponding
+uncached JSONL through `--reference-jsonl`. This yields full-trace label and
+score agreement without a duplicate forward or a second full-sequence attention
+workspace while the accelerator KV cache is resident.
+
 ## Validity and limitations
 
 The document strategy uses one whole-article storage and eviction unit. The
