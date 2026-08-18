@@ -1,0 +1,82 @@
+{
+  "command": "matrix",
+  "matrix_type": "selected-inference",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.dev",
+  "split": "dev",
+  "verify_counts": true,
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "tokenizer": "Qwen/Qwen2.5-1.5B-Instruct",
+  "device": "cuda",
+  "dtype": "float16",
+  "no_inference": false,
+  "output_root": "results/inference_confirmation",
+  "seed": 42,
+  "budget_mb": 4096,
+  "block_tokens": 16,
+  "progress_every": 10,
+  "profiles": {
+    "smoke": {"limit": 10},
+    "confirmation": {"limit": 100},
+    "full": {"limit": null}
+  },
+  "runs": [
+    {
+      "name": "01_uncached_random_fp16",
+      "workload": "random",
+      "policy": "none",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "02_document_lru_random_fp16_4gib",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "validate_agreement": true
+    },
+    {
+      "name": "03_fixed_block_lru_random_fp16_4gib",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block"
+    },
+    {
+      "name": "04_radix_lru_random_fp16_4gib",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "radix"
+    },
+    {
+      "name": "05_document_lru_random_int8_4gib",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "cpu-int8",
+      "cache_strategy": "document",
+      "validate_agreement": true
+    },
+    {
+      "name": "06_uncached_zipf_fp16",
+      "workload": "zipf",
+      "policy": "none",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "07_document_lru_zipf_fp16_4gib",
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "08_document_gdsf_zipf_fp16_4gib",
+      "workload": "zipf",
+      "policy": "gdsf",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    }
+  ]
+}

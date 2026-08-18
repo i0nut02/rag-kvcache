@@ -90,6 +90,12 @@ example, `--agreement-atol 0.1`.
 Do not use the test split for accuracy: its labels are withheld. It is suitable
 for cache-hit and latency traces.
 
+For the next experiment, use the curated eight-run matrix instead of manually
+expanding every strategy and policy. It provides 10-query smoke and 100-query
+confirmation profiles on QuALITY dev; the exact rationale, run list, and staged
+commands are in
+[`inference_confirmation.md`](inference_confirmation.md).
+
 ## 5. Preserve results before the Colab runtime expires
 
 ```python

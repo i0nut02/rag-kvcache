@@ -218,6 +218,13 @@ seed, exact model/tokenizer identifiers, prompt version, policy, workload,
 storage format, budget, git revision, and hardware information. `collect`
 rejects legacy or mixed-schema summaries.
 
+The completed 108-run trace findings, representative measurements, and rules
+for interpreting partial-hit metrics are recorded in
+[`docs/no_inference_results.md`](docs/no_inference_results.md).
+The selected eight-run real-inference follow-up and its copy-paste Colab
+commands are recorded in
+[`docs/inference_confirmation.md`](docs/inference_confirmation.md).
+
 ## Measurements and verification
 
 Per-request records contain `cache_hit_ratio = cached_prompt_tokens /

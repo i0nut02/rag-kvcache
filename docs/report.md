@@ -27,9 +27,12 @@ traces and do not report accuracy or QuALITY-hard accuracy from them.
 Report grouped, seeded random, and Zipf(1.1) workloads. Use seed 42 for
 synthetic traces. Separate cold start from steady
 state. Compare document, 16-token fixed-block, and radix caches with LRU, LFU,
-and GDSF at 2, 4, and 8 GiB. Fast checks use 10 requests, confirmation runs use
+and GDSF at 4 and 8 GiB. Fast checks use 10 requests, confirmation runs use
 50, and the full profile uses every test question.
 Repeat fixed-block sensitivity at 64 and 256 tokens.
+
+The completed trace findings and metric interpretation are recorded in
+[`no_inference_results.md`](no_inference_results.md).
 
 All configured runs use the local Qwen2.5-1.5B-Instruct tokenizer and KV geometry
 in no-inference mode. Compare accelerator-resident FP16 (CUDA or MPS) and

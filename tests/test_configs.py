@@ -74,6 +74,48 @@ class ExperimentConfigTest(unittest.TestCase):
         self.assertEqual(payload["cache_device"], "cuda")
         self.assertFalse(payload["no_inference"])
 
+    def test_selected_inference_confirmation_expands_expected_runs(self):
+        root = Path(__file__).resolve().parents[1]
+        config = load_matrix(root / "configs" / "inference_confirmation.json")
+
+        smoke = build_matrix_commands(
+            config, "smoke", root / "results" / "inference-smoke"
+        )
+        confirmation = build_matrix_commands(
+            config, "confirmation", root / "results" / "inference-confirmation"
+        )
+        full = build_matrix_commands(
+            config, "full", root / "results" / "inference-full"
+        )
+
+        self.assertEqual(len(smoke), 8)
+        self.assertEqual(len({tuple(command) for command in smoke}), 8)
+        self.assertTrue(all("--no-inference" not in command for command in smoke))
+        self.assertTrue(all("--limit" in command for command in smoke))
+        self.assertTrue(
+            all(command[command.index("--limit") + 1] == "10" for command in smoke)
+        )
+        self.assertTrue(
+            all(
+                command[command.index("--limit") + 1] == "100"
+                for command in confirmation
+            )
+        )
+        self.assertTrue(all("--limit" not in command for command in full))
+        self.assertTrue(
+            all(command[command.index("--split") + 1] == "dev" for command in smoke)
+        )
+
+        uncached = [command for command in smoke if "none" in command]
+        cached = [command for command in smoke if "none" not in command]
+        self.assertEqual(len(uncached), 2)
+        self.assertEqual(len(cached), 6)
+        self.assertTrue(all("--budget-mb" not in command for command in uncached))
+        self.assertTrue(all("--budget-mb" in command for command in cached))
+        self.assertEqual(
+            sum("--validate-agreement" in command for command in smoke), 2
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
