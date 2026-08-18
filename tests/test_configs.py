@@ -19,7 +19,7 @@ class ExperimentConfigTest(unittest.TestCase):
             with self.subTest(name=name):
                 payload = json.loads((root / "configs" / name).read_text(encoding="utf-8"))
                 self.assertEqual(payload["seeds"], [42])
-                self.assertEqual(payload["budget_mb"], [2048, 4096, 8192])
+                self.assertEqual(payload["budget_mb"], [4096, 8192])
                 self.assertEqual(
                     payload["storage"], ["accelerator-fp16", "cpu-int8"]
                 )
@@ -55,8 +55,9 @@ class ExperimentConfigTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         config = load_matrix(root / "configs" / "cache_strategies.json")
         commands = build_matrix_commands(config, "full", root / "results" / "matrix")
-        self.assertEqual(len(commands), 162)
-        self.assertEqual(len({tuple(command) for command in commands}), 162)
+        self.assertEqual(config["primary_combinations"], 108)
+        self.assertEqual(len(commands), 108)
+        self.assertEqual(len({tuple(command) for command in commands}), 108)
         for command in commands:
             self.assertIn("--no-inference", command)
             self.assertNotIn("--limit", command)

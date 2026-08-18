@@ -8,7 +8,7 @@
   "workloads": ["grouped", "random", "zipf"],
   "policies": ["lru", "lfu", "gdsf"],
   "seeds": [42],
-  "budget_mb": [2048, 4096, 8192],
+  "budget_mb": [4096, 8192],
   "storage": ["accelerator-fp16", "cpu-int8"],
   "no_inference": true,
   "requests": null,

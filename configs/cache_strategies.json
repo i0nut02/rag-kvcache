@@ -13,7 +13,7 @@
   "storage": ["accelerator-fp16", "cpu-int8"],
   "workloads": ["grouped", "random", "zipf"],
   "seeds": [42],
-  "budget_mb": [2048, 4096, 8192],
+  "budget_mb": [4096, 8192],
   "prefill_calibration": "configs/prefill_qwen2.5_1.5b_mps.json",
   "block_tokens": {
     "document": 16,
@@ -25,7 +25,7 @@
     "confirmation": {"limit": 50},
     "full": {"limit": null}
   },
-  "primary_combinations": 162,
+  "primary_combinations": 108,
   "fixed_block_tokens_sensitivity": [16, 64, 256],
   "accuracy_available": false
 }
