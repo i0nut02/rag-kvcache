@@ -45,6 +45,7 @@ class NoInferenceTest(unittest.TestCase):
         self.assertEqual(args.cache_strategy, "radix")
         self.assertEqual(args.storage, "accelerator-fp16")
         self.assertEqual(args.agreement_atol, 0.1)
+        self.assertEqual(args.progress_every, 100)
         self.assertIsNone(args.requests)
 
     def test_limit_alias_sets_positive_request_count(self):
@@ -79,6 +80,23 @@ class NoInferenceTest(unittest.TestCase):
                         "out.jsonl",
                     ]
                 )
+
+    def test_progress_can_be_disabled(self):
+        args = build_parser().parse_args(
+            [
+                "run",
+                "tiny.train",
+                "--split",
+                "train",
+                "--progress-every",
+                "0",
+                "--budget-mb",
+                "1",
+                "--output",
+                "out.jsonl",
+            ]
+        )
+        self.assertEqual(args.progress_every, 0)
 
     def test_runner_never_loads_model_weights_or_calls_forward(self):
         config = types.SimpleNamespace(

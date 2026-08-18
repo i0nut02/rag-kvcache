@@ -78,6 +78,138 @@ class CacheStrategiesTest(unittest.TestCase):
         self.assertGreater(cache.stats()["metadata_bytes"], 0)
         self.assertGreater(cache.stats()["cache_footprint_bytes"], cache.current_bytes)
 
+    def test_fixed_block_online_policies_choose_expected_leaf(self):
+        cases = {
+            "lru": ("b", 1.0, 1.0),
+            "lfu": ("b", 1.0, 1.0),
+            "fifo": ("a", 1.0, 1.0),
+            "gdsf": ("b", 100.0, 1.0),
+        }
+        for policy, (evicted, a_cost, b_cost) in cases.items():
+            with self.subTest(policy=policy):
+                cache = FixedBlockPrefixCache(40, block_tokens=2, policy=policy)
+                cache.insert(
+                    key("a"), [1, 2], StoredKV(2, simulated_bytes=20), a_cost
+                )
+                cache.insert(
+                    key("b"), [3, 4], StoredKV(2, simulated_bytes=20), b_cost
+                )
+                cache.lookup(key("a"), [1, 2])
+                cache.insert(
+                    key("c"), [5, 6], StoredKV(2, simulated_bytes=20), 3.0
+                )
+                matches = {
+                    name: cache.lookup(key(name), tokens).matched_tokens
+                    for name, tokens in {
+                        "a": [1, 2],
+                        "b": [3, 4],
+                        "c": [5, 6],
+                    }.items()
+                }
+                self.assertEqual(matches[evicted], 0)
+                self.assertEqual(matches["c"], 2)
+                self.assertLessEqual(cache.current_bytes, cache.max_bytes)
+
+    def test_fixed_block_eviction_promotes_parent_without_stranding_nodes(self):
+        cache = FixedBlockPrefixCache(40, block_tokens=2, policy="lru")
+        cache.insert(
+            key("a"), [1, 2, 3, 4], StoredKV(4, simulated_bytes=40), 1.0
+        )
+        cache.insert(key("b"), [5, 6], StoredKV(2, simulated_bytes=20), 1.0)
+        self.assertEqual(cache.lookup(key("a"), [1, 2, 3, 4]).matched_tokens, 2)
+        cache.insert(key("c"), [7, 8], StoredKV(2, simulated_bytes=20), 1.0)
+        stats = cache.stats()
+        self.assertEqual(stats["stranded_bytes"], 0)
+        self.assertEqual(stats["useful_bytes"], cache.current_bytes)
+        self.assertEqual(stats["cached_tokens"], 4)
+        self.assertTrue(all(count >= 0 for count in cache._child_counts.values()))
+        self.assertLessEqual(cache.current_bytes, cache.max_bytes)
+
+    def test_fixed_block_churn_keeps_incremental_structure_consistent(self):
+        prefixes = (
+            [1, 2, 3, 4, 5, 6],
+            [1, 2, 3, 4, 7, 8],
+            [1, 2, 9, 10, 11, 12],
+            [13, 14, 15, 16, 17, 18],
+        )
+        for policy in ("lru", "lfu", "fifo", "gdsf"):
+            with self.subTest(policy=policy):
+                cache = FixedBlockPrefixCache(80, block_tokens=2, policy=policy)
+                for index in range(40):
+                    tokens = prefixes[index % len(prefixes)]
+                    cache.lookup(key(str(index)), tokens)
+                    cache.insert(
+                        key(str(index)),
+                        tokens,
+                        StoredKV(len(tokens), simulated_bytes=60),
+                        float(index % 5 + 1),
+                    )
+                    expected_children = {digest: 0 for digest in cache.entries}
+                    children = {}
+                    for digest, entry in cache.entries.items():
+                        children.setdefault(entry.parent, []).append(digest)
+                        if entry.parent in expected_children:
+                            expected_children[entry.parent] += 1
+                    reachable = set()
+                    frontier = list(cache.root_hashes)
+                    while frontier:
+                        parent = frontier.pop()
+                        for digest in children.get(parent, ()):
+                            if digest not in reachable:
+                                reachable.add(digest)
+                                frontier.append(digest)
+                    self.assertEqual(cache._child_counts, expected_children)
+                    self.assertEqual(reachable, set(cache.entries))
+                    self.assertEqual(
+                        cache.current_bytes,
+                        sum(entry.payload.stored_bytes for entry in cache.entries.values()),
+                    )
+                    self.assertEqual(
+                        cache.stats()["cached_tokens"],
+                        sum(entry.token_count for entry in cache.entries.values()),
+                    )
+                    self.assertLessEqual(cache.current_bytes, cache.max_bytes)
+
+    def test_fixed_block_heap_matches_scanning_policy_reference(self):
+        class ScanningFixedBlockCache(FixedBlockPrefixCache):
+            def _pop_victim(self, protected):
+                candidates = [
+                    entry
+                    for digest, entry in self.entries.items()
+                    if digest not in protected and self._child_counts[digest] == 0
+                ]
+                return min(candidates, key=self._victim_priority, default=None)
+
+        prefixes = (
+            [1, 2, 3, 4, 5, 6],
+            [1, 2, 3, 4, 7, 8],
+            [1, 2, 9, 10, 11, 12],
+            [13, 14, 15, 16, 17, 18],
+        )
+        for policy in ("lru", "lfu", "fifo", "gdsf"):
+            with self.subTest(policy=policy):
+                heap_cache = FixedBlockPrefixCache(80, block_tokens=2, policy=policy)
+                scan_cache = ScanningFixedBlockCache(80, block_tokens=2, policy=policy)
+                for index in range(80):
+                    tokens = prefixes[(index * 3) % len(prefixes)]
+                    request_key = key(str(index))
+                    self.assertEqual(
+                        heap_cache.lookup(request_key, tokens).matched_tokens,
+                        scan_cache.lookup(request_key, tokens).matched_tokens,
+                    )
+                    cost = float(index % 7 + 1)
+                    for cache in (heap_cache, scan_cache):
+                        cache.insert(
+                            request_key,
+                            tokens,
+                            StoredKV(len(tokens), simulated_bytes=60),
+                            cost,
+                        )
+                    self.assertEqual(set(heap_cache.entries), set(scan_cache.entries))
+                    self.assertEqual(heap_cache.current_bytes, scan_cache.current_bytes)
+                    self.assertEqual(heap_cache.insertions, scan_cache.insertions)
+                    self.assertEqual(heap_cache.evictions, scan_cache.evictions)
+
     def test_radix_shares_prefix_and_returns_longest_match(self):
         cache = RadixPrefixCache(100)
         cache.insert(key("a"), [1, 2, 3, 4], StoredKV(4, simulated_bytes=40), 1.0)

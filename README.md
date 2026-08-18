@@ -41,7 +41,9 @@ and evicts one complete article KV object, `fixed-block` uses independently
 evicted content-addressed token blocks, and `radix` stores shared token prefixes
 in a compressed radix tree. Identity includes model and tokenizer revisions,
 prompt version, dtype, and quantization format; document entries additionally
-include article ID and content hash.
+include article ID and content hash. Fixed-block eviction maintains child counts
+and policy-ordered leaf heaps, avoiding a full scan of the block table for every
+eviction.
 
 Budgets use actual stored tensor bytes and may also cap article count. A budget
 that cannot hold one requested article is rejected. Online policies are LRU, LFU
@@ -109,7 +111,9 @@ Repeat with `--cache-strategy fixed-block` or `radix`. Fixed-block mode uses
 for a budget relative to the full split working set. No-inference rows report
 prefix reuse and simulated prefill work; TTFT and accuracy remain unmeasured.
 Use `--limit N` to run only the first or sampled `N` queries; omit it to run all
-queries in the selected split/workload.
+queries in the selected split/workload. Runs print cache occupancy, eviction
+count, and request throughput every 100 requests. Change the interval with
+`--progress-every N`, or disable progress with `--progress-every 0`.
 
 Before GDSF no-inference sweeps, calibrate article prefill on the same model and
 hardware. Supply the generated piecewise model to `run` or `simulate` with
@@ -171,14 +175,14 @@ python experiments/run_quality.py run \
 
 The older `simulate` command remains available for multi-policy trace sweeps and
 farthest-next-use comparisons. It accepts absolute `--budget-mb` values or
-working-set percentages. The matrix uses seed 42 and 2/4/8 GiB budgets. Fast
+working-set percentages. The matrix uses seed 42 and 4/8 GiB budgets. Fast
 checks use ten random requests; confirmation subsets use fifty.
 
 If `--cold-requests` is omitted, the first 10% of each trace is reported as cold
 start and the remainder as steady state. The cache-strategy matrix is recorded
 in `configs/cache_strategies.json`. It uses only the test split and expands to
-162 combinations: three cache strategies, three online policies, two storage
-modes, three workloads, and three budgets, all with seed 42.
+108 combinations: three cache strategies, three online policies, two storage
+modes, three workloads, and two budgets, all with seed 42.
 
 Validate the matrix without executing it:
 

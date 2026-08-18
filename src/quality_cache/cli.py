@@ -160,6 +160,13 @@ def build_parser() -> argparse.ArgumentParser:
             "(FP16 0.0625, BF16 0.25, FP32 0.001)"
         ),
     )
+    run.add_argument(
+        "--progress-every",
+        type=_nonnegative_int,
+        default=100,
+        metavar="N",
+        help="print serving progress every N requests; use 0 to disable (default: 100)",
+    )
     run.add_argument("--output", type=Path, required=True, help="per-request JSONL path")
 
     plot = sub.add_parser("plot", help="create the four primary figures")
@@ -182,6 +189,13 @@ def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def _nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be nonnegative")
     return parsed
 
 
@@ -562,6 +576,7 @@ def _run(args, articles) -> int:
             )
 
     rows = []
+    serving_started = time.perf_counter()
     for index, request in enumerate(trace):
         row = (
             runner.serve_uncached(
@@ -602,6 +617,18 @@ def _run(args, articles) -> int:
             "prefill_cost_model": runner.prefill_cost_model,
         })
         rows.append(row)
+        completed = index + 1
+        if args.progress_every and (
+            completed % args.progress_every == 0 or completed == len(trace)
+        ):
+            elapsed = time.perf_counter() - serving_started
+            rate = completed / max(elapsed, 1e-12)
+            print(
+                f"[{args.output.name}] requests {completed}/{len(trace)} "
+                f"({rate:.1f} req/s, occupancy={row.get('occupancy', 0.0):.1%}, "
+                f"evictions={row.get('evictions', 0)})",
+                flush=True,
+            )
     write_jsonl(args.output, rows)
     summary = summarize(rows, cold_requests=cold_requests)
     summary.update({

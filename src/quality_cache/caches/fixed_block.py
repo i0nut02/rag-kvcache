@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import heapq
 import sys
 from dataclasses import dataclass
 from typing import Any
@@ -23,6 +24,7 @@ class _FixedEntry:
     last_access: int
     frequency: int = 1
     priority: float = 0.0
+    heap_version: int = 0
 
 
 class FixedBlockPrefixCache:
@@ -50,12 +52,15 @@ class FixedBlockPrefixCache:
         self.l0 = l0
         self.entries: dict[str, _FixedEntry] = {}
         self.root_hashes: set[str] = set()
+        self._child_counts: dict[str, int] = {}
+        self._victim_heap: list[tuple[tuple[Any, ...], int, str]] = []
+        self._entry_metadata_bytes = 0
+        self._cached_tokens = 0
         self.current_bytes = 0
         self.clock = 0
         self.gdsf_clock = 0.0
         self.insertions = 0
         self.evictions = 0
-        self._stats_cache: dict[str, Any] | None = None
 
     def __len__(self):
         return len(self.entries)
@@ -64,7 +69,6 @@ class FixedBlockPrefixCache:
         root = cache_namespace(key)
         if root not in self.root_hashes:
             self.root_hashes.add(root)
-            self._invalidate_stats()
         return root
 
     @staticmethod
@@ -89,6 +93,7 @@ class FixedBlockPrefixCache:
             entry.last_access = self.clock
             if self.policy == "gdsf":
                 entry.priority = self._gdsf_priority(entry)
+            self._refresh_leaf(entry)
             payloads.append(entry.payload)
             matched += entry.token_count
             parent = digest
@@ -107,6 +112,7 @@ class FixedBlockPrefixCache:
             existing = self.entries.get(digest)
             if existing is not None:
                 existing.last_access = self.clock
+                existing.heap_version += 1
                 protected.add(digest)
                 parent = digest
                 admitted = True
@@ -118,6 +124,7 @@ class FixedBlockPrefixCache:
                 continue
             while self.current_bytes + size > self.max_bytes:
                 if not self._evict_one(protected):
+                    self._schedule_protected_leaves(protected)
                     self._assert_budget()
                     return admitted
             entry = _FixedEntry(
@@ -133,52 +140,107 @@ class FixedBlockPrefixCache:
                 last_access=self.clock,
             )
             entry.priority = self._gdsf_priority(entry)
+            parent_entry = self.entries.get(parent)
+            if parent_entry is not None:
+                self._child_counts[parent] += 1
+                # A node with a child is no longer an eviction candidate.
+                parent_entry.heap_version += 1
             self.entries[digest] = entry
+            self._child_counts[digest] = 0
             self.current_bytes += size
+            self._cached_tokens += entry.token_count
+            self._entry_metadata_bytes += self._entry_metadata_size(entry)
             self.insertions += 1
-            self._invalidate_stats()
             admitted = True
             protected.add(digest)
             parent = digest
+        self._schedule_protected_leaves(protected)
+        self._maybe_compact_heap()
         self._assert_budget()
         return admitted
 
     def _evict_one(self, protected: set[str] | None = None) -> bool:
         protected = protected or set()
-        parent_digests = {entry.parent for entry in self.entries.values()}
-        leaves = [
-            entry
-            for digest, entry in self.entries.items()
-            if digest not in protected and digest not in parent_digests
-        ]
-        if not leaves:
+        victim = self._pop_victim(protected)
+        if victim is None:
             return False
-        # Evict complete-prefix leaves first so retained descendants never lose
-        # their parent chain and become unusable cache bytes.
-        victim = self._victim(leaves)
         self.entries.pop(victim.digest)
+        self._child_counts.pop(victim.digest)
         self.current_bytes -= victim.payload.stored_bytes
+        self._cached_tokens -= victim.token_count
+        self._entry_metadata_bytes -= self._entry_metadata_size(victim)
         if self.policy == "gdsf":
             self.gdsf_clock = victim.priority
+        parent = self.entries.get(victim.parent)
+        if parent is not None:
+            remaining = self._child_counts[victim.parent] - 1
+            self._child_counts[victim.parent] = remaining
+            if remaining == 0:
+                self._schedule_leaf(parent)
         victim.payload.blocks.clear()
         self.evictions += 1
-        self._invalidate_stats()
         return True
 
-    def _victim(self, entries: list[_FixedEntry]) -> _FixedEntry:
+    def _victim_priority(self, entry: _FixedEntry) -> tuple[Any, ...]:
         if self.policy == "lru":
-            return min(entries, key=lambda entry: (entry.last_access, entry.inserted_at))
+            return (entry.last_access, entry.inserted_at)
         if self.policy == "lfu":
-            return min(
-                entries,
-                key=lambda entry: (entry.frequency, entry.last_access, entry.inserted_at),
-            )
+            return (entry.frequency, entry.last_access, entry.inserted_at)
         if self.policy == "fifo":
-            return min(entries, key=lambda entry: entry.inserted_at)
-        return min(
-            entries,
-            key=lambda entry: (entry.priority, entry.last_access, entry.inserted_at),
+            return (entry.inserted_at,)
+        return (entry.priority, entry.last_access, entry.inserted_at)
+
+    def _schedule_leaf(self, entry: _FixedEntry) -> None:
+        if self._child_counts.get(entry.digest) != 0:
+            return
+        entry.heap_version += 1
+        heapq.heappush(
+            self._victim_heap,
+            (self._victim_priority(entry), entry.heap_version, entry.digest),
         )
+
+    def _refresh_leaf(self, entry: _FixedEntry) -> None:
+        if self._child_counts.get(entry.digest) == 0:
+            self._schedule_leaf(entry)
+
+    def _schedule_protected_leaves(self, protected: set[str]) -> None:
+        for digest in protected:
+            entry = self.entries.get(digest)
+            if entry is not None and self._child_counts.get(digest) == 0:
+                self._schedule_leaf(entry)
+
+    def _pop_victim(self, protected: set[str]) -> _FixedEntry | None:
+        deferred: list[tuple[tuple[Any, ...], int, str]] = []
+        victim = None
+        while self._victim_heap:
+            item = heapq.heappop(self._victim_heap)
+            _, version, digest = item
+            entry = self.entries.get(digest)
+            if (
+                entry is None
+                or entry.heap_version != version
+                or self._child_counts.get(digest) != 0
+            ):
+                continue
+            if digest in protected:
+                deferred.append(item)
+                continue
+            victim = entry
+            break
+        for item in deferred:
+            heapq.heappush(self._victim_heap, item)
+        return victim
+
+    def _maybe_compact_heap(self) -> None:
+        # Access updates are appended lazily. Rebuild only when stale records
+        # substantially outnumber the cache entries, keeping normal eviction
+        # O(log B) while bounding policy metadata.
+        if len(self._victim_heap) <= max(1024, 4 * len(self.entries)):
+            return
+        self._victim_heap.clear()
+        for entry in self.entries.values():
+            if self._child_counts.get(entry.digest) == 0:
+                self._schedule_leaf(entry)
 
     def _gdsf_priority(self, entry: _FixedEntry) -> float:
         return (
@@ -189,29 +251,15 @@ class FixedBlockPrefixCache:
         )
 
     def stats(self) -> dict[str, Any]:
-        if self._stats_cache is not None:
-            return dict(self._stats_cache)
-        children: dict[str, list[str]] = {}
-        for digest, entry in self.entries.items():
-            children.setdefault(entry.parent, []).append(digest)
-        reachable = set()
-        frontier = list(self.root_hashes)
-        while frontier:
-            parent = frontier.pop()
-            for digest in children.get(parent, ()):
-                if digest not in reachable:
-                    reachable.add(digest)
-                    frontier.append(digest)
-        useful = sum(self.entries[digest].payload.stored_bytes for digest in reachable)
-        stranded = self.current_bytes - useful
-        metadata_bytes = sys.getsizeof(self.entries) + sys.getsizeof(self.root_hashes)
-        for entry in self.entries.values():
-            metadata_bytes += sys.getsizeof(entry)
-            metadata_bytes += sys.getsizeof(entry.digest) + sys.getsizeof(entry.parent)
-            metadata_bytes += sys.getsizeof(entry.tokens)
-            metadata_bytes += len(entry.tokens) * sys.getsizeof(0)
-            metadata_bytes += sys.getsizeof(entry.payload)
-            metadata_bytes += sys.getsizeof(entry.payload.blocks)
+        metadata_bytes = (
+            sys.getsizeof(self.entries)
+            + sys.getsizeof(self.root_hashes)
+            + sys.getsizeof(self._child_counts)
+            + len(self._child_counts) * sys.getsizeof(0)
+            + sys.getsizeof(self._victim_heap)
+            + len(self._victim_heap) * sys.getsizeof(((), 0, ""))
+            + self._entry_metadata_bytes
+        )
         stats = {
             "cache_bytes": self.current_bytes,
             "metadata_bytes": metadata_bytes,
@@ -222,23 +270,29 @@ class FixedBlockPrefixCache:
             "cached_documents": 0,
             "cached_blocks": len(self.entries),
             "radix_nodes": 0,
-            "cached_tokens": sum(entry.token_count for entry in self.entries.values()),
-            "useful_tokens": sum(
-                self.entries[digest].token_count for digest in reachable
-            ),
+            "cached_tokens": self._cached_tokens,
+            "useful_tokens": self._cached_tokens,
             "insertions": self.insertions,
             "evictions": self.evictions,
             "policy": self.policy,
             "cache_strategy": self.strategy,
-            "useful_bytes": useful,
+            "useful_bytes": self.current_bytes,
             "shared_bytes": 0,
-            "stranded_bytes": stranded,
+            "stranded_bytes": 0,
         }
-        self._stats_cache = dict(stats)
         return stats
+
+    @staticmethod
+    def _entry_metadata_size(entry: _FixedEntry) -> int:
+        return (
+            sys.getsizeof(entry)
+            + sys.getsizeof(entry.digest)
+            + sys.getsizeof(entry.parent)
+            + sys.getsizeof(entry.tokens)
+            + len(entry.tokens) * sys.getsizeof(0)
+            + sys.getsizeof(entry.payload)
+            + sys.getsizeof(entry.payload.blocks)
+        )
 
     def _assert_budget(self):
         assert self.current_bytes <= self.max_bytes
-
-    def _invalidate_stats(self) -> None:
-        self._stats_cache = None
