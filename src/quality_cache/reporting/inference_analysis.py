@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 import statistics
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ from .io import write_csv
 from .metrics import percentile, summarize
 
 
-ANALYSIS_VERSION = "quality-fair-inference-v1"
+ANALYSIS_VERSION = "quality-fair-inference-v2"
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,54 @@ RUN_SPECS = (
 )
 
 
+def load_analysis_suite(path: str | Path | None = None) -> tuple[ConfirmationRun, ...]:
+    """Load a declarative run suite, or return the frozen 1.5B default."""
+    if path is None:
+        return RUN_SPECS
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    configured = payload.get("runs")
+    if not isinstance(configured, list) or not configured:
+        raise ValueError("analysis suite requires a non-empty runs list")
+    fields = (
+        "name",
+        "label",
+        "short_label",
+        "workload",
+        "kind",
+        "strategy",
+        "policy",
+        "storage",
+    )
+    runs = []
+    for index, item in enumerate(configured):
+        if not isinstance(item, dict):
+            raise ValueError(f"analysis run {index} must be an object")
+        missing = [field for field in fields if field not in item]
+        if missing:
+            raise ValueError(f"analysis run {index} is missing fields: {missing}")
+        run = ConfirmationRun(*(str(item[field]) for field in fields))
+        if run.kind not in {"full", "segmented", "cache"}:
+            raise ValueError(
+                f"analysis run {run.name!r} has unsupported kind {run.kind!r}"
+            )
+        runs.append(run)
+    names = [run.name for run in runs]
+    if len(names) != len(set(names)):
+        raise ValueError("analysis run names must be unique")
+    for workload in dict.fromkeys(run.workload for run in runs):
+        selected = [run for run in runs if run.workload == workload]
+        segmented = [run for run in selected if run.kind == "segmented"]
+        caches = [run for run in selected if run.kind == "cache"]
+        full = [run for run in selected if run.kind == "full"]
+        if caches and len(segmented) != 1:
+            raise ValueError(
+                f"workload {workload!r} requires exactly one segmented control"
+            )
+        if len(full) > 1:
+            raise ValueError(f"workload {workload!r} has multiple full controls")
+    return tuple(runs)
+
+
 def bootstrap_ratio_ci(
     numerator: list[float],
     denominator: list[float],
@@ -165,46 +214,50 @@ def analyze_inference_confirmation(
     *,
     bootstrap_samples: int = 20_000,
     seed: int = 42,
+    suite_config: str | Path | None = None,
 ) -> list[Path]:
-    """Validate the ten-run suite and write tables, diagnostics, and figures."""
+    """Validate a configured aligned suite and write analysis artifacts."""
     results_dir = Path(results_dir)
     output_dir = Path(output_dir)
     if not results_dir.is_dir():
         raise ValueError(f"inference result directory does not exist: {results_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
+    run_specs = load_analysis_suite(suite_config)
 
     paths: dict[str, Path] = {}
     rows: dict[str, list[dict[str, Any]]] = {}
     manifests: dict[str, dict[str, Any]] = {}
-    for spec in RUN_SPECS:
+    for spec in run_specs:
         path = _resolve_run(results_dir, spec.name)
         paths[spec.name] = path
         rows[spec.name] = _read_jsonl(path)
         manifests[spec.name] = _read_manifest(path)
         _validate_run(spec, rows[spec.name])
 
-    validation = _validate_suite(rows, manifests)
-    summaries = _run_summaries(rows)
+    validation = _validate_suite(rows, manifests, run_specs)
+    summaries = _run_summaries(rows, run_specs)
     comparisons = _fair_comparisons(
         rows,
         summaries,
+        run_specs,
         bootstrap_samples=bootstrap_samples,
         seed=seed,
     )
-    correctness = _correctness_comparisons(rows)
-    segmentation_correctness = _segmentation_correctness(rows)
-    mismatch_details = _mismatch_details(rows)
+    correctness = _correctness_comparisons(rows, run_specs)
+    segmentation_correctness = _segmentation_correctness(rows, run_specs)
+    mismatch_details = _mismatch_details(rows, run_specs)
 
     artifacts = []
     artifacts.append(write_csv(output_dir / "run_summaries.csv", summaries))
     artifacts.append(write_csv(output_dir / "fair_speedups.csv", comparisons))
     artifacts.append(write_csv(output_dir / "correctness.csv", correctness))
-    artifacts.append(
-        write_csv(
-            output_dir / "segmentation_correctness.csv",
-            segmentation_correctness,
+    if segmentation_correctness:
+        artifacts.append(
+            write_csv(
+                output_dir / "segmentation_correctness.csv",
+                segmentation_correctness,
+            )
         )
-    )
 
     mismatch_path = output_dir / "mismatch_details.json"
     mismatch_path.write_text(
@@ -228,7 +281,7 @@ def analyze_inference_confirmation(
                         "sha256": _sha256(paths[spec.name]),
                         "git_revision": manifests[spec.name].get("git_revision"),
                     }
-                    for spec in RUN_SPECS
+                    for spec in run_specs
                 ],
                 "fair_speedups": comparisons,
                 "correctness": correctness,
@@ -254,7 +307,7 @@ def analyze_inference_confirmation(
         encoding="utf-8",
     )
     artifacts.append(markdown_path)
-    artifacts.extend(_make_figures(summaries, comparisons, output_dir))
+    artifacts.extend(_make_figures(summaries, comparisons, output_dir, run_specs))
     return artifacts
 
 
@@ -342,11 +395,20 @@ def _validate_run(spec: ConfirmationRun, rows: list[dict[str, Any]]) -> None:
 def _validate_suite(
     rows: dict[str, list[dict[str, Any]]],
     manifests: dict[str, dict[str, Any]],
+    run_specs: tuple[ConfirmationRun, ...],
 ) -> dict[str, Any]:
     checksums = {manifest.get("dataset_checksum") for manifest in manifests.values()}
     models = {row[0].get("model") for row in rows.values()}
     torch_versions = {
         manifest.get("hardware", {}).get("torch") for manifest in manifests.values()
+    }
+    result_schemas = {
+        row.get("result_schema_version")
+        for run_rows in rows.values()
+        for row in run_rows
+    }
+    manifest_schemas = {
+        manifest.get("result_schema_version") for manifest in manifests.values()
     }
     if len(checksums) != 1 or None in checksums:
         raise ValueError("inference runs do not share one dataset checksum")
@@ -354,10 +416,18 @@ def _validate_suite(
         raise ValueError("inference runs do not share one model")
     if len(torch_versions) != 1 or None in torch_versions:
         raise ValueError("inference runs do not share one Torch version")
+    if len(result_schemas) != 1 or None in result_schemas:
+        raise ValueError("inference runs contain missing or mixed result schemas")
+    result_schema = next(iter(result_schemas))
+    if manifest_schemas != {result_schema}:
+        raise ValueError(
+            "result manifests contain missing or incompatible result schemas"
+        )
 
     requests_by_workload = {}
-    for workload in ("random", "zipf"):
-        selected = [spec for spec in RUN_SPECS if spec.workload == workload]
+    workloads = tuple(dict.fromkeys(spec.workload for spec in run_specs))
+    for workload in workloads:
+        selected = [spec for spec in run_specs if spec.workload == workload]
         reference = rows[selected[0].name]
         reference_keys = _trace_keys(reference)
         for spec in selected[1:]:
@@ -366,11 +436,12 @@ def _validate_suite(
         requests_by_workload[workload] = len(reference)
 
     return {
-        "runs": len(RUN_SPECS),
+        "runs": len(run_specs),
         "requests_by_workload": requests_by_workload,
         "dataset_checksum": next(iter(checksums)),
         "model": next(iter(models)),
         "torch": next(iter(torch_versions)),
+        "result_schema_version": result_schema,
         "traces_aligned": True,
         "segmented_invariants": True,
     }
@@ -385,9 +456,10 @@ def _trace_keys(rows: list[dict[str, Any]]) -> list[tuple[int, str, str]]:
 
 def _run_summaries(
     rows: dict[str, list[dict[str, Any]]],
+    run_specs: tuple[ConfirmationRun, ...],
 ) -> list[dict[str, Any]]:
     output = []
-    for spec in RUN_SPECS:
+    for spec in run_specs:
         run_rows = rows[spec.name]
         cold_requests = int(
             run_rows[0].get("cold_requests", max(1, len(run_rows) // 10))
@@ -416,6 +488,8 @@ def _run_summaries(
                 "cache_bytes_peak": measured["cache_bytes_peak"],
                 "evictions": measured["evictions"],
                 "dequant_mean_s": measured["dequant_mean_s"],
+                "restore_mean_s": measured["restore_mean_s"],
+                "store_mean_s": measured["store_mean_s"],
                 "policy_mean_s": measured["policy_mean_s"],
             }
         )
@@ -425,6 +499,7 @@ def _run_summaries(
 def _fair_comparisons(
     rows: dict[str, list[dict[str, Any]]],
     summaries: list[dict[str, Any]],
+    run_specs: tuple[ConfirmationRun, ...],
     *,
     bootstrap_samples: int,
     seed: int,
@@ -432,23 +507,24 @@ def _fair_comparisons(
     summary_by_name = {summary["run"]: summary for summary in summaries}
     output = []
     comparison_index = 0
-    for spec in RUN_SPECS:
+    for spec in run_specs:
         if spec.kind != "cache":
             continue
         full_spec = next(
-            candidate
-            for candidate in RUN_SPECS
-            if candidate.workload == spec.workload and candidate.kind == "full"
+            (
+                candidate
+                for candidate in run_specs
+                if candidate.workload == spec.workload and candidate.kind == "full"
+            ),
+            None,
         )
         segmented_spec = next(
             candidate
-            for candidate in RUN_SPECS
+            for candidate in run_specs
             if candidate.workload == spec.workload and candidate.kind == "segmented"
         )
-        full_ttft = _ttft(rows[full_spec.name])
         segmented_ttft = _ttft(rows[segmented_spec.name])
         cache_ttft = _ttft(rows[spec.name])
-        full_mean = statistics.fmean(full_ttft)
         segmented_mean = statistics.fmean(segmented_ttft)
         cache_mean = statistics.fmean(cache_ttft)
         lower, upper = bootstrap_ratio_ci(
@@ -459,8 +535,13 @@ def _fair_comparisons(
         )
         comparison_index += 1
         summary = summary_by_name[spec.name]
-        full_summary = summary_by_name[full_spec.name]
         segmented_summary = summary_by_name[segmented_spec.name]
+        full_summary = summary_by_name[full_spec.name] if full_spec else None
+        full_mean = (
+            statistics.fmean(_ttft(rows[full_spec.name]))
+            if full_spec
+            else math.nan
+        )
         output.append(
             {
                 "run": spec.name,
@@ -470,16 +551,24 @@ def _fair_comparisons(
                 "policy": spec.policy,
                 "storage": spec.storage,
                 "full_uncached_ttft_mean_s": full_mean,
-                "full_uncached_ttft_p50_s": full_summary["ttft_p50_s"],
-                "full_uncached_ttft_p95_s": full_summary["ttft_p95_s"],
+                "full_uncached_ttft_p50_s": (
+                    full_summary["ttft_p50_s"] if full_summary else math.nan
+                ),
+                "full_uncached_ttft_p95_s": (
+                    full_summary["ttft_p95_s"] if full_summary else math.nan
+                ),
                 "segmented_ttft_mean_s": segmented_mean,
                 "segmented_ttft_p50_s": segmented_summary["ttft_p50_s"],
                 "segmented_ttft_p95_s": segmented_summary["ttft_p95_s"],
                 "cached_ttft_mean_s": cache_mean,
                 "cached_ttft_p50_s": summary["ttft_p50_s"],
                 "cached_ttft_p95_s": summary["ttft_p95_s"],
-                "end_to_end_speedup": full_mean / cache_mean,
-                "segmentation_speedup": full_mean / segmented_mean,
+                "end_to_end_speedup": (
+                    full_mean / cache_mean if full_spec else math.nan
+                ),
+                "segmentation_speedup": (
+                    full_mean / segmented_mean if full_spec else math.nan
+                ),
                 "cache_only_speedup": segmented_mean / cache_mean,
                 "cache_only_speedup_ci95_low": lower,
                 "cache_only_speedup_ci95_high": upper,
@@ -497,14 +586,15 @@ def _fair_comparisons(
 
 def _correctness_comparisons(
     rows: dict[str, list[dict[str, Any]]],
+    run_specs: tuple[ConfirmationRun, ...],
 ) -> list[dict[str, Any]]:
     output = []
-    for spec in RUN_SPECS:
+    for spec in run_specs:
         if spec.kind != "cache":
             continue
         segmented_spec = next(
             candidate
-            for candidate in RUN_SPECS
+            for candidate in run_specs
             if candidate.workload == spec.workload and candidate.kind == "segmented"
         )
         reference = rows[segmented_spec.name]
@@ -553,19 +643,28 @@ def _correctness_comparisons(
 
 def _segmentation_correctness(
     rows: dict[str, list[dict[str, Any]]],
+    run_specs: tuple[ConfirmationRun, ...],
 ) -> list[dict[str, Any]]:
     output = []
-    for workload in ("random", "zipf"):
+    for workload in dict.fromkeys(spec.workload for spec in run_specs):
         full_spec = next(
-            spec
-            for spec in RUN_SPECS
-            if spec.workload == workload and spec.kind == "full"
+            (
+                spec
+                for spec in run_specs
+                if spec.workload == workload and spec.kind == "full"
+            ),
+            None,
         )
         segmented_spec = next(
-            spec
-            for spec in RUN_SPECS
-            if spec.workload == workload and spec.kind == "segmented"
+            (
+                spec
+                for spec in run_specs
+                if spec.workload == workload and spec.kind == "segmented"
+            ),
+            None,
         )
+        if full_spec is None or segmented_spec is None:
+            continue
         reference = rows[full_spec.name]
         candidate = rows[segmented_spec.name]
         full_accuracy = _row_accuracy(reference)
@@ -601,19 +700,28 @@ def _segmentation_correctness(
 
 def _mismatch_details(
     rows: dict[str, list[dict[str, Any]]],
+    run_specs: tuple[ConfirmationRun, ...],
 ) -> list[dict[str, Any]]:
     comparisons = []
-    for workload in ("random", "zipf"):
+    for workload in dict.fromkeys(spec.workload for spec in run_specs):
         full_spec = next(
-            spec
-            for spec in RUN_SPECS
-            if spec.workload == workload and spec.kind == "full"
+            (
+                spec
+                for spec in run_specs
+                if spec.workload == workload and spec.kind == "full"
+            ),
+            None,
         )
         segmented_spec = next(
-            spec
-            for spec in RUN_SPECS
-            if spec.workload == workload and spec.kind == "segmented"
+            (
+                spec
+                for spec in run_specs
+                if spec.workload == workload and spec.kind == "segmented"
+            ),
+            None,
         )
+        if full_spec is None or segmented_spec is None:
+            continue
         comparisons.append(
             (
                 f"{segmented_spec.name}_vs_full",
@@ -622,12 +730,12 @@ def _mismatch_details(
                 rows[segmented_spec.name],
             )
         )
-    for spec in RUN_SPECS:
+    for spec in run_specs:
         if spec.kind != "cache":
             continue
         segmented_spec = next(
             candidate
-            for candidate in RUN_SPECS
+            for candidate in run_specs
             if candidate.workload == spec.workload and candidate.kind == "segmented"
         )
         comparisons.append(
@@ -710,25 +818,17 @@ def _render_markdown(
     correctness: list[dict[str, Any]],
     segmentation_correctness: list[dict[str, Any]],
 ) -> str:
-    int8_correctness = next(
-        row for row in correctness if row["storage"] == "cpu-int8"
-    )
-    zipf_segmentation = next(
-        row for row in segmentation_correctness if row["workload"] == "zipf"
-    )
-    random_requests = validation["requests_by_workload"]["random"]
-    unique_zipf_mismatches = zipf_segmentation["unique_label_mismatches"]
-    unique_question_word = "question" if unique_zipf_mismatches == 1 else "questions"
     lines = [
         "# Fair inference confirmation",
         "",
         f"Analysis schema: `{ANALYSIS_VERSION}`. The archive contains "
         f"{validation['runs']} aligned runs using `{validation['model']}` and "
-        f"Torch `{validation['torch']}`.",
+        f"Torch `{validation['torch']}`. Result schema: "
+        f"`{validation['result_schema_version']}`.",
         "",
         "The cache-only baseline is segmented inference with pinned L0 and no "
-        "retained article KV. End-to-end speedup uses the original one-forward "
-        "uncached path.",
+        "retained article KV. End-to-end values are reported only when the suite "
+        "also includes a full one-forward control.",
         "",
         "## Latency",
         "",
@@ -738,6 +838,11 @@ def _render_markdown(
         "|---|---|---|---:|---:|---:|---:|",
     ]
     for row in comparisons:
+        end_to_end = (
+            f"{row['end_to_end_speedup']:.2f}x"
+            if math.isfinite(float(row["end_to_end_speedup"]))
+            else "n/a"
+        )
         lines.append(
             f"| {row['workload']} | {row['strategy']} / {row['policy']} | "
             f"{row['storage']} | {row['cached_ttft_mean_s']:.3f} / "
@@ -745,24 +850,22 @@ def _render_markdown(
             f"{row['cache_only_speedup']:.2f}x "
             f"[{row['cache_only_speedup_ci95_low']:.2f}, "
             f"{row['cache_only_speedup_ci95_high']:.2f}] | "
-            f"{row['end_to_end_speedup']:.2f}x | "
+            f"{end_to_end} | "
             f"{row['cache_only_ttft_reduction_percent']:+.1f}% |"
         )
-    lines.extend(
-        [
-            "",
-            "A positive TTFT change is a reduction. A cache-only speedup below "
-            "1.0 means cache management made the run slower than segmented "
-            "execution without document retention.",
-            "",
-            "## Correctness against the segmented path",
-            "",
-            "| Workload | Strategy | Storage | Label agreement | Accuracy "
-            "(segmented -> cache) | Hard accuracy (segmented -> cache) | "
-            "Mismatches | Maximum logit delta |",
-            "|---|---|---|---:|---:|---:|---:|---:|",
-        ]
-    )
+    lines.extend([
+        "",
+        "A positive TTFT change is a reduction. A cache-only speedup below "
+        "1.0 means cache management made the run slower than segmented "
+        "execution without document retention.",
+        "",
+        "## Correctness against the segmented path",
+        "",
+        "| Workload | Strategy | Storage | Label agreement | Accuracy "
+        "(segmented -> cache) | Hard accuracy (segmented -> cache) | "
+        "Mismatches | Maximum logit delta |",
+        "|---|---|---|---:|---:|---:|---:|---:|",
+    ])
     for row in correctness:
         lines.append(
             f"| {row['workload']} | {row['label']} | {row['storage']} | "
@@ -776,14 +879,8 @@ def _render_markdown(
             f"{row['label_mismatches']} | "
             f"{row['max_label_logit_delta_vs_segmented']:.6f} |"
         )
-    lines.extend(
-        [
-            "",
-            "The FP16 document-cache paths match segmented execution exactly. "
-            f"CPU INT8 has {int8_correctness['label_mismatches']} label mismatch "
-            f"in this {random_requests}-request sample, so its "
-            "quality effect needs a larger confirmation before it is described "
-            "as lossless.",
+    if segmentation_correctness:
+        lines.extend([
             "",
             "## Segmented control against the full path",
             "",
@@ -791,38 +888,28 @@ def _render_markdown(
             "Hard accuracy (full -> segmented) | Mismatch occurrences | "
             "Unique questions | Maximum logit delta |",
             "|---|---:|---:|---:|---:|---:|---:|",
-        ]
-    )
-    for row in segmentation_correctness:
-        lines.append(
-            f"| {row['workload']} | {100.0 * row['agreement_vs_full']:.1f}% | "
-            f"{100.0 * row['full_accuracy']:.1f}% -> "
-            f"{100.0 * row['segmented_accuracy']:.1f}% "
-            f"({100.0 * row['accuracy_delta_vs_full']:+.1f} pp) | "
-            f"{100.0 * row['full_hard_accuracy']:.1f}% -> "
-            f"{100.0 * row['segmented_hard_accuracy']:.1f}% "
-            f"({100.0 * row['hard_accuracy_delta_vs_full']:+.1f} pp) | "
-            f"{row['label_mismatches']} | {row['unique_label_mismatches']} | "
-            f"{row['max_label_logit_delta_vs_full']:.6f} |"
-        )
-    lines.extend(
-        [
-            "",
-            f"The {zipf_segmentation['label_mismatches']} Zipf mismatch "
-            "occurrences represent "
-            f"{unique_zipf_mismatches} unique {unique_question_word}. "
-            "Both FP16 document-cache runs match segmented execution exactly, "
-            "so this discrepancy comes from the segmented forward path rather "
-            "than cache restoration or eviction.",
-            "",
-            "## Figures",
-            "",
-            "- [TTFT by execution path](ttft_by_execution_path.pdf)",
-            "- [Cache-only speedup](cache_only_speedup.pdf)",
-            "- [Article-hit/latency tradeoff](hit_latency_tradeoff.pdf)",
-            "",
-        ]
-    )
+        ])
+        for row in segmentation_correctness:
+            lines.append(
+                f"| {row['workload']} | {100.0 * row['agreement_vs_full']:.1f}% | "
+                f"{100.0 * row['full_accuracy']:.1f}% -> "
+                f"{100.0 * row['segmented_accuracy']:.1f}% "
+                f"({100.0 * row['accuracy_delta_vs_full']:+.1f} pp) | "
+                f"{100.0 * row['full_hard_accuracy']:.1f}% -> "
+                f"{100.0 * row['segmented_hard_accuracy']:.1f}% "
+                f"({100.0 * row['hard_accuracy_delta_vs_full']:+.1f} pp) | "
+                f"{row['label_mismatches']} | {row['unique_label_mismatches']} | "
+                f"{row['max_label_logit_delta_vs_full']:.6f} |"
+            )
+    lines.extend([
+        "",
+        "## Figures",
+        "",
+        "- [TTFT by execution path](ttft_by_execution_path.pdf)",
+        "- [Cache-only speedup](cache_only_speedup.pdf)",
+        "- [Article-hit/latency tradeoff](hit_latency_tradeoff.pdf)",
+        "",
+    ])
     return "\n".join(lines)
 
 
@@ -830,6 +917,7 @@ def _make_figures(
     summaries: list[dict[str, Any]],
     comparisons: list[dict[str, Any]],
     output_dir: Path,
+    run_specs: tuple[ConfirmationRun, ...],
 ) -> list[Path]:
     import matplotlib
 
@@ -838,8 +926,16 @@ def _make_figures(
 
     summary_by_name = {row["run"]: row for row in summaries}
     artifacts = []
+    workloads = tuple(dict.fromkeys(spec.workload for spec in run_specs))
 
-    fig, axes = plt.subplots(1, 2, figsize=(12.0, 4.5), sharey=True)
+    fig, axes_grid = plt.subplots(
+        1,
+        len(workloads),
+        figsize=(max(6.0, 6.0 * len(workloads)), 4.5),
+        sharey=True,
+        squeeze=False,
+    )
+    axes = axes_grid[0]
     colors = {
         "full": "#6b7280",
         "segmented": "#9ca3af",
@@ -847,8 +943,8 @@ def _make_figures(
         "fixed-block": "#dc2626",
         "radix": "#7c3aed",
     }
-    for axis, workload in zip(axes, ("random", "zipf")):
-        specs = [spec for spec in RUN_SPECS if spec.workload == workload]
+    for axis, workload in zip(axes, workloads):
+        specs = [spec for spec in run_specs if spec.workload == workload]
         values = [summary_by_name[spec.name]["ttft_mean_s"] for spec in specs]
         bar_colors = [
             "#059669"
@@ -868,7 +964,7 @@ def _make_figures(
         for bar, value in zip(bars, values):
             axis.text(
                 bar.get_x() + bar.get_width() / 2,
-                value + 0.08,
+                value + max(values) * 0.02,
                 f"{value:.2f}",
                 ha="center",
                 va="bottom",
@@ -879,73 +975,60 @@ def _make_figures(
     artifacts.extend(_save_figure(fig, output_dir / "ttft_by_execution_path"))
     plt.close(fig)
 
-    labels = [
-        f"{row['workload']}: {row['strategy']}/{row['policy']} "
-        f"({'INT8' if row['storage'] == 'cpu-int8' else 'FP16'})"
-        for row in comparisons
-    ]
-    speedups = [row["cache_only_speedup"] for row in comparisons]
-    lower = [
-        value - row["cache_only_speedup_ci95_low"]
-        for value, row in zip(speedups, comparisons)
-    ]
-    upper = [
-        row["cache_only_speedup_ci95_high"] - value
-        for value, row in zip(speedups, comparisons)
-    ]
-    fig, axis = plt.subplots(figsize=(8.4, 4.8))
-    positions = list(range(len(labels)))
-    axis.barh(
-        positions,
-        speedups,
-        xerr=[lower, upper],
-        color=["#059669" if value > 1.0 else "#dc2626" for value in speedups],
-        alpha=0.9,
-        capsize=3,
-    )
-    axis.axvline(1.0, color="black", linestyle="--", linewidth=1)
-    axis.set_yticks(positions, labels)
-    axis.invert_yaxis()
-    axis.set_xlabel("Speedup over segmented execution without document cache")
-    axis.set_title("Cross-request article-KV reuse benefit (95% paired bootstrap CI)")
-    axis.grid(axis="x", alpha=0.25)
-    for position, value, high in zip(positions, speedups, upper):
-        axis.text(
-            value + high + 0.045,
-            position,
-            f"{value:.2f}x",
-            va="center",
-            fontsize=8,
+    if comparisons:
+        labels = [
+            f"{row['workload']}: {row['strategy']}/{row['policy']} "
+            f"({'INT8' if row['storage'] == 'cpu-int8' else 'FP16'})"
+            for row in comparisons
+        ]
+        speedups = [row["cache_only_speedup"] for row in comparisons]
+        lower = [
+            value - row["cache_only_speedup_ci95_low"]
+            for value, row in zip(speedups, comparisons)
+        ]
+        upper = [
+            row["cache_only_speedup_ci95_high"] - value
+            for value, row in zip(speedups, comparisons)
+        ]
+        fig, axis = plt.subplots(figsize=(8.4, max(4.0, 0.65 * len(labels))))
+        positions = list(range(len(labels)))
+        axis.barh(
+            positions,
+            speedups,
+            xerr=[lower, upper],
+            color=["#059669" if value > 1.0 else "#dc2626" for value in speedups],
+            alpha=0.9,
+            capsize=3,
         )
-    axis.set_xlim(
-        0.0,
-        max(row["cache_only_speedup_ci95_high"] for row in comparisons) + 0.3,
-    )
-    fig.tight_layout()
-    artifacts.extend(_save_figure(fig, output_dir / "cache_only_speedup"))
-    plt.close(fig)
+        axis.axvline(1.0, color="black", linestyle="--", linewidth=1)
+        axis.set_yticks(positions, labels)
+        axis.invert_yaxis()
+        axis.set_xlabel("Speedup over segmented execution without document cache")
+        axis.set_title("Cross-request article-KV reuse benefit (95% paired bootstrap CI)")
+        axis.grid(axis="x", alpha=0.25)
+        axis.margins(x=0.12)
+        fig.tight_layout()
+        artifacts.extend(_save_figure(fig, output_dir / "cache_only_speedup"))
+        plt.close(fig)
 
-    fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.5), sharey=True)
+    fig, axes_grid = plt.subplots(
+        1,
+        len(workloads),
+        figsize=(max(6.0, 5.5 * len(workloads)), 4.5),
+        sharey=True,
+        squeeze=False,
+    )
+    axes = axes_grid[0]
     marker_by_strategy = {
         "none": "o",
         "document": "s",
         "fixed-block": "^",
         "radix": "D",
     }
-    annotation_layout = {
-        "01b_segmented_uncached_random_fp16": ((7, 5), "left"),
-        "02_document_lru_random_fp16_4gib": ((-8, 12), "right"),
-        "03_fixed_block_lru_random_fp16_4gib": ((7, 5), "left"),
-        "04_radix_lru_random_fp16_4gib": ((8, -15), "left"),
-        "05_document_lru_random_int8_4gib": ((-8, 5), "right"),
-        "06b_segmented_uncached_zipf_fp16": ((7, 5), "left"),
-        "07_document_lru_zipf_fp16_4gib": ((-8, 11), "right"),
-        "08_document_gdsf_zipf_fp16_4gib": ((-8, -15), "right"),
-    }
-    for axis, workload in zip(axes, ("random", "zipf")):
+    for axis, workload in zip(axes, workloads):
         specs = [
             spec
-            for spec in RUN_SPECS
+            for spec in run_specs
             if spec.workload == workload and spec.kind != "full"
         ]
         for spec in specs:
@@ -958,25 +1041,23 @@ def _make_figures(
             axis.scatter(
                 [x],
                 [y],
-                marker=marker_by_strategy[spec.strategy],
+                marker=marker_by_strategy.get(spec.strategy, "o"),
                 s=75,
                 color=color,
             )
-            offset, alignment = annotation_layout[spec.name]
             axis.annotate(
                 spec.short_label.replace("\n", " "),
                 (x, y),
-                xytext=offset,
+                xytext=(6, 6),
                 textcoords="offset points",
-                ha=alignment,
+                ha="left",
                 fontsize=8,
             )
         axis.set_title(f"{workload.capitalize()} workload")
         axis.set_xlabel("Article-token hit rate (%)")
         axis.set_ylabel("Mean TTFT (s)")
         axis.grid(alpha=0.25)
-        axis.set_xlim((-2, 38) if workload == "random" else (-3, 66))
-        axis.set_ylim(0.8, 2.45)
+        axis.margins(x=0.12, y=0.18)
     fig.suptitle("Article reuse versus latency")
     fig.tight_layout()
     artifacts.extend(_save_figure(fig, output_dir / "hit_latency_tradeoff"))

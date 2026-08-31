@@ -240,7 +240,15 @@ def summarize(rows: Iterable[dict[str, Any]], *, cold_requests: int = 0) -> dict
         else math.nan
     )
     result["amortized_prefill_time_s"] = result["prefill_time_s"] / max(1, len(rows))
-    for name in ("lookup_s", "load_s", "transfer_s", "dequant_s", "policy_s"):
+    for name in (
+        "lookup_s",
+        "load_s",
+        "transfer_s",
+        "dequant_s",
+        "restore_s",
+        "store_s",
+        "policy_s",
+    ):
         result[f"{name[:-2]}_mean_s"] = statistics.fmean(
             float(row.get(name, 0)) for row in rows
         ) if rows else math.nan

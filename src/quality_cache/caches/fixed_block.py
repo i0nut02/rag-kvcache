@@ -97,6 +97,7 @@ class FixedBlockPrefixCache:
             payloads.append(entry.payload)
             matched += entry.token_count
             parent = digest
+        self._maybe_compact_heap()
         return PrefixLookup(matched, payloads, len(tokens))
 
     def insert(

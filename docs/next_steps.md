@@ -79,7 +79,28 @@ python experiments/run_quality.py matrix configs/timing_repetitions.json \
 The `smoke` profile contains only ten requests and is a functional check; it
 must not be included in the timing aggregate.
 
-## Remaining experiment 1: one scale-confirmation model
+## Completed implementation hardening before the next matrix
+
+The pre-arena refactor is complete:
+
+- fixed-block and radix caches use bounded, versioned lazy eviction heaps;
+- radix tensor bytes and cached tokens are maintained incrementally rather
+  than recomputed by a full tree scan after every insertion;
+- all strategies implement one structural `PrefixCache` protocol and are
+  constructed through a registry-based factory;
+- in-process matrices reuse immutable dataset, tokenizer/config, and token-ID
+  state while retaining fresh model weights and empty mutable caches per run;
+- inference rows now separate tensor `store_s` and combined `restore_s` from
+  policy and prefill time;
+- tokenization happens once outside the measured model-forward interval; and
+- inference analysis accepts a declarative run suite instead of relying on one
+  hard-coded list and fixed plot ranges.
+
+These timing changes introduce result schema `quality-kv-v3`. The frozen 1.5B
+archive remains v2 and is not invalidated; it must not be concatenated with new
+v3 rows. The new 0.5B scale check is internally aligned and entirely v3.
+
+## Ready to run: one scale-confirmation model
 
 Repeat only the decisive comparisons with
 `Qwen/Qwen2.5-0.5B-Instruct`:
@@ -101,6 +122,14 @@ Exit criteria:
 - the document strategy remains competitive with fixed-block 256 and radix;
 - report speedup and hit rate at the matched working-set fraction.
 
+The six-run matrix and configuration-driven analyzer are now implemented in
+`configs/qwen_0.5b_confirmation.json` and
+`configs/qwen_0.5b_analysis.json`. The matched fraction is
+`22.80130165664403%`, derived from the frozen 1.5B 4 GiB working-set ratio.
+Use the staged Colab commands in
+[`qwen_0.5b_confirmation.md`](qwen_0.5b_confirmation.md); do not substitute a
+4 GiB byte budget for the smaller model.
+
 ## Remaining implementation 2: KV arena and Triton restore
 
 The strongest additional systems contribution is a small document-owned arena
@@ -115,8 +144,9 @@ plus a fused INT8 restore kernel:
 4. Implement a Triton kernel that reads INT8 K/V and per-layer/per-KV-head
    scales, dequantizes to FP16, and writes directly into the accelerator arena.
 5. Time quantization lookup, host-to-device movement, kernel execution, and
-   cache reconstruction separately. The current `dequant_mean_s` combines
-   these phases.
+   cache reconstruction separately. Schema v3 reports the current combined
+   PyTorch path only as `restore_mean_s`; its isolated `dequant_mean_s` and
+   `transfer_mean_s` fields remain zero until those stages are instrumented.
 6. Microbenchmark PyTorch versus Triton by restored tokens and bytes, then
    rerun only segmented, document FP16, and document INT8 end-to-end paths.
 

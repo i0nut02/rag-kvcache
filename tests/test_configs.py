@@ -215,6 +215,36 @@ class ExperimentConfigTest(unittest.TestCase):
                     )
                 )
 
+    def test_half_billion_confirmation_matches_working_set_fraction(self):
+        root = Path(__file__).resolve().parents[1]
+        config = load_matrix(root / "configs" / "qwen_0.5b_confirmation.json")
+        commands = build_matrix_commands(
+            config,
+            "confirmation",
+            root / "results" / "qwen-0.5b",
+        )
+        self.assertEqual(len(commands), 6)
+        self.assertEqual(config["seed"], 42)
+        self.assertEqual(config["model"], "Qwen/Qwen2.5-0.5B-Instruct")
+        cached = [
+            command
+            for command in commands
+            if command[command.index("--policy") + 1] != "none"
+        ]
+        self.assertEqual(len(cached), 4)
+        self.assertTrue(all("--budget-percent" in command for command in cached))
+        self.assertTrue(all("--budget-mb" not in command for command in cached))
+        self.assertEqual(
+            {
+                float(command[command.index("--budget-percent") + 1])
+                for command in cached
+            },
+            {4096 * 2**20 / 18_836_500_480 * 100},
+        )
+        self.assertTrue(
+            all(command[command.index("--limit") + 1] == "100" for command in commands)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

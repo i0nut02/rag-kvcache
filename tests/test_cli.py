@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from src.quality_cache.cli import main
-from src.quality_cache.schema import RESULT_SCHEMA_VERSION
+from src.quality_cache.schema import NO_INFERENCE_TIMING_SCOPE, RESULT_SCHEMA_VERSION
 
 
 class CLITest(unittest.TestCase):
@@ -49,6 +49,10 @@ class CLITest(unittest.TestCase):
                 {row["result_schema_version"] for row in rows},
                 {RESULT_SCHEMA_VERSION},
             )
+            manifest = json.loads(
+                output.with_suffix(".csv.manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["timing_scope"], NO_INFERENCE_TIMING_SCOPE)
 
     def test_collect_rejects_legacy_results(self):
         with tempfile.TemporaryDirectory() as directory:

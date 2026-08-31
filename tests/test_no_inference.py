@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from src.quality_cache.cli import build_parser
 from src.quality_cache.inference.no_inference import NoInferenceRunner
+from src.quality_cache.inference.context import ExperimentContext
 from src.quality_cache.schema import RESULT_SCHEMA_VERSION
 from src.quality_cache.data import build_workload
 from tests.helpers import articles
@@ -152,6 +153,37 @@ class NoInferenceTest(unittest.TestCase):
             second["cache_footprint_bytes"], second["cache_bytes"]
         )
         self.assertGreater(second["process_rss_bytes"], 0)
+
+    def test_experiment_context_reuses_no_inference_assets(self):
+        config = types.SimpleNamespace(
+            num_hidden_layers=2,
+            num_key_value_heads=1,
+            num_attention_heads=2,
+            hidden_size=16,
+            _commit_hash="config-revision",
+        )
+        context = ExperimentContext()
+        tokenizer = _CharacterTokenizer()
+        with (
+            patch(
+                "transformers.AutoTokenizer.from_pretrained",
+                return_value=tokenizer,
+            ) as load_tokenizer,
+            patch(
+                "transformers.AutoConfig.from_pretrained",
+                return_value=config,
+            ) as load_config,
+        ):
+            first = NoInferenceRunner(
+                "fake-model", dtype="float16", experiment_context=context
+            )
+            second = NoInferenceRunner(
+                "fake-model", dtype="float16", experiment_context=context
+            )
+        load_tokenizer.assert_called_once()
+        load_config.assert_called_once()
+        self.assertIs(first.tokenizer, second.tokenizer)
+        self.assertIs(first.tokenization, second.tokenization)
 
     def test_twenty_thousand_requests_complete_under_one_minute(self):
         runner = NoInferenceRunner.__new__(NoInferenceRunner)

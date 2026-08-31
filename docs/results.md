@@ -81,6 +81,13 @@ The downloaded follow-up archive was checked before writing this document:
 Raw result archives remain outside Git, as intended. The complete SHA-256 list
 needed to identify this exact follow-up archive is in the provenance appendix.
 
+These frozen 1.5B artifacts use result schema `quality-kv-v2`. New runs use
+`quality-kv-v3`, which tokenizes once outside the measured model-forward
+interval and reports combined `restore_s` plus a separate `store_s`. It does
+not relabel combined restore time as isolated transfer or dequantization time.
+Do not merge request-level or summary rows across the two schemas; the
+numerical claims on this page remain the historical v2 baseline.
+
 ## Metric conventions
 
 The fair cache-only baseline is segmented inference: it executes the same

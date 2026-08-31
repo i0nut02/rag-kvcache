@@ -111,6 +111,12 @@ configs are `fixed_block_inference.json`, `int8_accuracy_confirmation.json`,
 and `timing_repetitions.json` under `configs/`. Do not rerun them unless you are
 checking reproducibility on a new accelerator.
 
+The next run is the six-path Qwen2.5-0.5B confirmation at the same FP16
+working-set fraction as the frozen 1.5B 4 GiB baseline. Do not use 4 GiB for
+the smaller model. Follow the exact smoke, confirmation, analysis, and download
+commands in
+[`qwen_0.5b_confirmation.md`](qwen_0.5b_confirmation.md).
+
 ## 5. Preserve results before the Colab runtime expires
 
 ```python

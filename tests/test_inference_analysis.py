@@ -8,10 +8,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.quality_cache.reporting.inference_analysis import (
+    ConfirmationRun,
     RUN_SPECS,
+    _validate_suite,
     analyze_inference_confirmation,
     bootstrap_ratio_ci,
+    load_analysis_suite,
 )
+from src.quality_cache.schema import RESULT_SCHEMA_VERSION
 
 
 class InferenceAnalysisTest(unittest.TestCase):
@@ -40,6 +44,7 @@ class InferenceAnalysisTest(unittest.TestCase):
                         {
                             "dataset_checksum": "test-checksum",
                             "git_revision": "test-revision",
+                            "result_schema_version": RESULT_SCHEMA_VERSION,
                             "hardware": {"torch": "test-torch"},
                         }
                     ),
@@ -79,6 +84,144 @@ class InferenceAnalysisTest(unittest.TestCase):
             )
             self.assertEqual(len(diagnostics["mismatch_details"]), 2)
 
+    def test_custom_suite_does_not_require_a_full_control(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "suite.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "runs": [
+                            {
+                                "name": "segmented",
+                                "label": "Segmented",
+                                "short_label": "Segmented",
+                                "workload": "random",
+                                "kind": "segmented",
+                                "strategy": "none",
+                                "policy": "none",
+                                "storage": "accelerator-fp16",
+                            },
+                            {
+                                "name": "document",
+                                "label": "Document",
+                                "short_label": "Document",
+                                "workload": "random",
+                                "kind": "cache",
+                                "strategy": "document",
+                                "policy": "lru",
+                                "storage": "accelerator-fp16",
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runs = load_analysis_suite(path)
+            results = root / "results"
+            output = root / "analysis"
+            results.mkdir()
+            for spec in runs:
+                result = results / f"dev_confirmation_{spec.name}.jsonl"
+                result.write_text(
+                    "".join(
+                        json.dumps(self._row(spec, index)) + "\n"
+                        for index in range(2)
+                    ),
+                    encoding="utf-8",
+                )
+                result.with_suffix(".jsonl.manifest.json").write_text(
+                    json.dumps(
+                        {
+                            "dataset_checksum": "test-checksum",
+                            "result_schema_version": RESULT_SCHEMA_VERSION,
+                            "hardware": {"torch": "test-torch"},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            with patch(
+                "src.quality_cache.reporting.inference_analysis._make_figures",
+                return_value=[],
+            ):
+                artifacts = analyze_inference_confirmation(
+                    results,
+                    output,
+                    bootstrap_samples=100,
+                    suite_config=path,
+                )
+            self.assertEqual([run.name for run in runs], ["segmented", "document"])
+            self.assertEqual(len(artifacts), 6)
+            with (output / "fair_speedups.csv").open(encoding="utf-8") as handle:
+                comparison = next(csv.DictReader(handle))
+            self.assertEqual(float(comparison["cache_only_speedup"]), 2.0)
+            self.assertEqual(comparison["end_to_end_speedup"], "nan")
+
+    def test_analysis_rejects_mixed_result_schemas(self):
+        segmented = ConfirmationRun(
+            "segmented",
+            "Segmented",
+            "Segmented",
+            "random",
+            "segmented",
+            "none",
+            "none",
+            "accelerator-fp16",
+        )
+        document = ConfirmationRun(
+            "document",
+            "Document",
+            "Document",
+            "random",
+            "cache",
+            "document",
+            "lru",
+            "accelerator-fp16",
+        )
+        rows = {
+            segmented.name: [self._row(segmented, 0)],
+            document.name: [
+                {
+                    **self._row(document, 0),
+                    "result_schema_version": "quality-kv-v2",
+                }
+            ],
+        }
+        manifests = {
+            name: {
+                "dataset_checksum": "test-checksum",
+                "result_schema_version": RESULT_SCHEMA_VERSION,
+                "hardware": {"torch": "test-torch"},
+            }
+            for name in rows
+        }
+
+        with self.assertRaisesRegex(ValueError, "mixed result schemas"):
+            _validate_suite(rows, manifests, (segmented, document))
+
+    def test_analysis_rejects_manifest_schema_mismatch(self):
+        segmented = ConfirmationRun(
+            "segmented",
+            "Segmented",
+            "Segmented",
+            "random",
+            "segmented",
+            "none",
+            "none",
+            "accelerator-fp16",
+        )
+        rows = {segmented.name: [self._row(segmented, 0)]}
+        manifests = {
+            segmented.name: {
+                "dataset_checksum": "test-checksum",
+                "result_schema_version": "quality-kv-v2",
+                "hardware": {"torch": "test-torch"},
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "incompatible result schemas"):
+            _validate_suite(rows, manifests, (segmented,))
+
     @staticmethod
     def _row(spec, index: int) -> dict:
         segmented_label = "B" if spec.workload == "zipf" and index == 1 else "A"
@@ -97,6 +240,7 @@ class InferenceAnalysisTest(unittest.TestCase):
         matched_tokens = 10 if cache_hit else 0
         cache_bytes = 1_000 if spec.kind == "cache" else 0
         row = {
+            "result_schema_version": RESULT_SCHEMA_VERSION,
             "request_index": index,
             "request_id": f"{spec.workload}-request-{index}",
             "article_id": f"{spec.workload}-article-{index}",

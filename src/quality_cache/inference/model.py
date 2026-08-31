@@ -4,11 +4,13 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from ..caches import CacheKey, StoredKV, new_prefix_cache
+from ..caches import CacheKey, PrefixCache, StoredKV, new_prefix_cache
 from ..data import QualityRequest
 from ..memory import current_process_rss_bytes, nonnegative_delta
-from ..prompt import PROMPT_VERSION, article_tail, encode_parts, l0_text, suffix_text
-from ..schema import RESULT_SCHEMA_VERSION
+from ..prompt import PROMPT_VERSION, encode_parts
+from ..schema import INFERENCE_TIMING_SCOPE, RESULT_SCHEMA_VERSION
+from .context import ExperimentContext, TokenizationContext, TokenizedPrompt
+from .timing import StageTimings
 from .tensors import (
     concatenate_caches,
     restore_blocks,
@@ -53,6 +55,7 @@ class QualityModelRunner:
         device: str = "mps",
         dtype: str = "float16",
         revision: str | None = None,
+        experiment_context: ExperimentContext | None = None,
     ):
         import torch
         import transformers
@@ -84,7 +87,20 @@ class QualityModelRunner:
             or revision
             or model_name
         )
-        self.l0_ids = self.tokenizer.encode(l0_text(), add_special_tokens=False)
+        if experiment_context is None:
+            self.tokenization = TokenizationContext(self.tokenizer)
+        else:
+            self.tokenization = experiment_context.tokenization_context(
+                (
+                    "inference",
+                    model_name,
+                    revision,
+                    self.tokenizer_revision,
+                    PROMPT_VERSION,
+                ),
+                self.tokenizer,
+            )
+        self.l0_ids = self.tokenization.l0_ids
         self.l0_cache = self._prefill(self.l0_ids)
         self.l0_tokens = sequence_length(self.l0_cache)
         self.reference_logit_atol = default_reference_logit_atol(self.dtype)
@@ -116,7 +132,7 @@ class QualityModelRunner:
         block_tokens: int = 16,
         cache_strategy: str = "document",
     ) -> int:
-        _, article_ids, _ = encode_parts(self.tokenizer, request.article_text, request.question)
+        article_ids = self._article_ids(request)
         config = self.model.config
         layers = int(config.num_hidden_layers)
         kv_heads = int(getattr(config, "num_key_value_heads", config.num_attention_heads))
@@ -135,16 +151,12 @@ class QualityModelRunner:
         return elements + scale_bytes
 
     def article_token_count(self, request: QualityRequest) -> int:
-        _, article_ids, _ = encode_parts(
-            self.tokenizer, request.article_text, request.question
-        )
+        article_ids = self._article_ids(request)
         return len(article_ids)
 
     def measure_article_prefill(self, request: QualityRequest) -> tuple[int, float]:
         """Measure L0-conditioned article prefill without scoring a question."""
-        _, article_ids, _ = encode_parts(
-            self.tokenizer, request.article_text, request.question
-        )
+        article_ids = self._article_ids(request)
         started = time.perf_counter()
         measured_cache = self._prefill(article_ids, past=self.l0_cache)
         self._synchronize()
@@ -164,7 +176,7 @@ class QualityModelRunner:
         storage: str,
         block_tokens: int = 16,
     ) -> float:
-        _, article_ids, _ = encode_parts(self.tokenizer, request.article_text, request.question)
+        article_ids = self._article_ids(request)
         key = self._cache_key(request, storage)
         if cache.lookup(key, article_ids).matched_tokens == len(article_ids):
             return 0.0
@@ -214,15 +226,20 @@ class QualityModelRunner:
         block_tokens: int = 16,
         cache_strategy: str = "document",
     ) -> dict[str, Any]:
-        l0_ids, article_ids, suffix_ids = encode_parts(
-            self.tokenizer, request.article_text, request.question
+        prompt = self._tokenized_prompt(request)
+        l0_ids, article_ids, suffix_ids = (
+            prompt.l0_ids,
+            prompt.article_ids,
+            prompt.suffix_ids,
         )
         total_prompt_tokens = len(l0_ids) + len(article_ids) + len(suffix_ids)
         document_tree_total_tokens = len(l0_ids) + len(article_ids)
+        timings = StageTimings()
         started = time.perf_counter()
-        score = self.score_uncached(request)
+        score = self.score_uncached(request, prompt=prompt)
         self._synchronize()
         ttft_s = time.perf_counter() - started
+        timings.prefill_s = ttft_s
         return {
             "result_schema_version": RESULT_SCHEMA_VERSION,
             "request_id": request.request_id,
@@ -250,13 +267,9 @@ class QualityModelRunner:
             ),
             "matched_prefill_tokens": 0,
             "avoided_prefill_tokens": 0,
-            "lookup_s": 0.0,
-            "load_s": 0.0,
-            "transfer_s": 0.0,
-            "dequant_s": 0.0,
-            "policy_s": 0.0,
-            "prefill_s": ttft_s,
+            **timings.as_row(),
             "ttft_s": ttft_s,
+            "timing_scope": INFERENCE_TIMING_SCOPE,
             "predicted_label": score.label,
             "label_scores": score.scores,
             "gold_label": request.question.answer_letter,
@@ -298,19 +311,23 @@ class QualityModelRunner:
         discarded instead of being inserted into a cache.  This isolates the
         benefit of cross-request article reuse from prompt segmentation.
         """
-        l0_ids, article_ids, suffix_ids = encode_parts(
-            self.tokenizer, request.article_text, request.question
+        prompt = self._tokenized_prompt(request)
+        l0_ids, article_ids, suffix_ids = (
+            prompt.l0_ids,
+            prompt.article_ids,
+            prompt.suffix_ids,
         )
         total_prompt_tokens = len(l0_ids) + len(article_ids) + len(suffix_ids)
         document_tree_total_tokens = len(l0_ids) + len(article_ids)
         document_tree_hit_ratio = len(l0_ids) / max(1, document_tree_total_tokens)
         cache_hit_ratio = len(l0_ids) / max(1, total_prompt_tokens)
 
+        timings = StageTimings()
         started = time.perf_counter()
         article_started = time.perf_counter()
         transient_prefix = self._prefill(article_ids, past=self.l0_cache)
         self._synchronize()
-        prefill_s = time.perf_counter() - article_started
+        timings.prefill_s = time.perf_counter() - article_started
         score = self.score_suffix(
             suffix_ids, transient_prefix, options=request.question.options
         )
@@ -345,13 +362,9 @@ class QualityModelRunner:
             ),
             "matched_prefill_tokens": 0,
             "avoided_prefill_tokens": 0,
-            "lookup_s": 0.0,
-            "load_s": 0.0,
-            "transfer_s": 0.0,
-            "dequant_s": 0.0,
-            "policy_s": 0.0,
-            "prefill_s": prefill_s,
+            **timings.as_row(),
             "ttft_s": ttft_s,
+            "timing_scope": INFERENCE_TIMING_SCOPE,
             "predicted_label": score.label,
             "label_scores": score.scores,
             "gold_label": request.question.answer_letter,
@@ -390,7 +403,7 @@ class QualityModelRunner:
     def serve(
         self,
         request: QualityRequest,
-        cache,
+        cache: PrefixCache,
         *,
         storage: str,
         block_tokens: int = 16,
@@ -398,14 +411,18 @@ class QualityModelRunner:
         validate_agreement: bool = False,
         agreement_atol: float | None = None,
     ) -> dict[str, Any]:
-        l0_ids, article_ids, suffix_ids = encode_parts(
-            self.tokenizer, request.article_text, request.question
+        prompt = self._tokenized_prompt(request)
+        l0_ids, article_ids, suffix_ids = (
+            prompt.l0_ids,
+            prompt.article_ids,
+            prompt.suffix_ids,
         )
         key = self._cache_key(request, storage)
+        timings = StageTimings()
         start = time.perf_counter()
         lookup_start = time.perf_counter()
         match = cache.lookup(key, article_ids)
-        lookup_s = time.perf_counter() - lookup_start
+        timings.lookup_s = time.perf_counter() - lookup_start
         matched = match.matched_tokens
         hit = matched == len(article_ids)
         partial_article_text_hit = 0 < matched < len(article_ids)
@@ -426,27 +443,18 @@ class QualityModelRunner:
         # L0 -> document tree. Article-text reuse has explicit fields below.
         partial_article_hit = partial_document_tree_hit
         article_cache_hit_ratio = document_tree_hit_ratio
-        prefill_s = 0.0
-        load_s = transfer_s = dequant_s = 0.0
-        policy_s = 0.0
         restored = tuple()
         if matched:
             restore_start = time.perf_counter()
             restored = restore_blocks(match.blocks, dtype=self.dtype, device=self.device)
             self._synchronize()
-            restore_s = time.perf_counter() - restore_start
-            if storage == "cpu-int8":
-                dequant_s = restore_s
-            elif storage == "cpu-fp16":
-                transfer_s = restore_s
-            else:
-                load_s = restore_s
+            timings.restore_s = time.perf_counter() - restore_start
         prefix = concatenate_caches(self.l0_cache, restored)
         if not hit:
             article_start = time.perf_counter()
             full_prefix_cache = self._prefill(article_ids[matched:], past=prefix)
             self._synchronize()
-            prefill_s = time.perf_counter() - article_start
+            timings.prefill_s = time.perf_counter() - article_start
             article_cache = slice_cache(
                 full_prefix_cache, self.l0_tokens, self.l0_tokens + len(article_ids)
             )
@@ -455,20 +463,23 @@ class QualityModelRunner:
                 if cache.strategy in {"document", "radix"}
                 else block_tokens
             )
+            store_start = time.perf_counter()
             blocks = store_blocks(
                 article_cache,
                 storage,
                 max(1, physical_block_tokens),
                 accelerator_device=self.device,
             )
+            self._synchronize()
+            timings.store_s = time.perf_counter() - store_start
             policy_start = time.perf_counter()
             cache.insert(
                 key,
                 article_ids,
                 StoredKV(len(article_ids), blocks=blocks),
-                prefill_s,
+                timings.prefill_s,
             )
-            policy_s = time.perf_counter() - policy_start
+            timings.policy_s = time.perf_counter() - policy_start
             prefix = full_prefix_cache
         score = self.score_suffix(suffix_ids, prefix, options=request.question.options)
         self._synchronize()
@@ -480,7 +491,7 @@ class QualityModelRunner:
             self.reference_logit_atol if agreement_atol is None else agreement_atol
         )
         if validate_agreement:
-            uncached = self.score_uncached(request)
+            uncached = self.score_uncached(request, prompt=prompt)
             uncached_label = uncached.label
             agreement = uncached.label == score.label
             logit_delta = max(abs(score.scores[label] - uncached.scores[label]) for label in "ABCD")
@@ -524,13 +535,9 @@ class QualityModelRunner:
             ),
             "matched_prefill_tokens": matched,
             "avoided_prefill_tokens": matched,
-            "lookup_s": lookup_s,
-            "load_s": load_s,
-            "transfer_s": transfer_s,
-            "dequant_s": dequant_s,
-            "policy_s": policy_s,
-            "prefill_s": prefill_s,
+            **timings.as_row(),
             "ttft_s": ttft_s,
+            "timing_scope": INFERENCE_TIMING_SCOPE,
             "predicted_label": score.label,
             "label_scores": score.scores,
             "gold_label": request.question.answer_letter,
@@ -561,9 +568,7 @@ class QualityModelRunner:
                 use_cache=True,
             )
         logits = output.logits[0, -1].float()
-        label_ids = {
-            label: self.tokenizer.encode(label, add_special_tokens=False) for label in "ABCD"
-        }
+        label_ids = self._label_ids()
         if all(len(ids) == 1 for ids in label_ids.values()):
             scores = {label: float(logits[ids[0]].item()) for label, ids in label_ids.items()}
         else:
@@ -580,18 +585,19 @@ class QualityModelRunner:
             }
         return ScoreResult(max(scores, key=scores.get), scores)  # type: ignore[arg-type]
 
-    def score_uncached(self, request: QualityRequest) -> ScoreResult:
-        l0_ids, article_ids, suffix_ids = encode_parts(
-            self.tokenizer, request.article_text, request.question
-        )
-        full_ids = l0_ids + article_ids + suffix_ids
+    def score_uncached(
+        self,
+        request: QualityRequest,
+        *,
+        prompt: TokenizedPrompt | None = None,
+    ) -> ScoreResult:
+        prompt = prompt or self._tokenized_prompt(request)
+        full_ids = prompt.full_ids
         torch = self.torch
         input_ids = torch.tensor([full_ids], dtype=torch.long, device=self.device)
         with torch.inference_mode():
             logits = self.model(input_ids=input_ids, use_cache=False).logits[0, -1].float()
-        label_ids = {
-            label: self.tokenizer.encode(label, add_special_tokens=False) for label in "ABCD"
-        }
+        label_ids = self._label_ids()
         if all(len(ids) == 1 for ids in label_ids.values()):
             scores = {label: float(logits[ids[0]].item()) for label, ids in label_ids.items()}
         else:
@@ -604,6 +610,33 @@ class QualityModelRunner:
                 for label, ids in sequences.items()
             }
         return ScoreResult(max(scores, key=scores.get), scores)  # type: ignore[arg-type]
+
+    def _tokenized_prompt(self, request: QualityRequest) -> TokenizedPrompt:
+        tokenization = getattr(self, "tokenization", None)
+        if tokenization is not None:
+            return tokenization.prompt(request)
+        l0_ids, article_ids, suffix_ids = encode_parts(
+            self.tokenizer, request.article_text, request.question
+        )
+        return TokenizedPrompt(l0_ids, article_ids, suffix_ids)
+
+    def _article_ids(self, request: QualityRequest) -> list[int]:
+        tokenization = getattr(self, "tokenization", None)
+        if tokenization is not None:
+            return tokenization.article_ids(request)
+        _, article_ids, _ = encode_parts(
+            self.tokenizer, request.article_text, request.question
+        )
+        return article_ids
+
+    def _label_ids(self) -> dict[str, list[int]]:
+        tokenization = getattr(self, "tokenization", None)
+        if tokenization is not None:
+            return tokenization.label_ids()
+        return {
+            label: self.tokenizer.encode(label, add_special_tokens=False)
+            for label in "ABCD"
+        }
 
     def _full_sequence_score(self, prompt_ids, label_ids) -> float:
         torch = self.torch

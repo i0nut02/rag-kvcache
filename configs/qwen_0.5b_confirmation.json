@@ -1,0 +1,79 @@
+{
+  "command": "matrix",
+  "matrix_type": "selected-scale-confirmation",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.dev",
+  "split": "dev",
+  "verify_counts": true,
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "tokenizer": "Qwen/Qwen2.5-0.5B-Instruct",
+  "device": "cuda",
+  "dtype": "float16",
+  "no_inference": false,
+  "output_root": "results/qwen_0.5b_confirmation",
+  "seed": 42,
+  "budget_percent": 22.80130165664403,
+  "matched_reference": {
+    "model": "Qwen/Qwen2.5-1.5B-Instruct",
+    "budget_bytes": 4294967296,
+    "fp16_working_set_bytes": 18836500480
+  },
+  "block_tokens": 256,
+  "agreement_atol": 0.0625,
+  "progress_every": 10,
+  "profiles": {
+    "smoke": {"limit": 10},
+    "confirmation": {"limit": 100},
+    "full": {"limit": null}
+  },
+  "runs": [
+    {
+      "name": "01_segmented_random_fp16",
+      "workload": "random",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "02_document_lru_random_fp16_matched",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "reference_run": "01_segmented_random_fp16"
+    },
+    {
+      "name": "03_fixed_block_256_lru_random_fp16_matched",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "block_tokens": 256,
+      "reference_run": "01_segmented_random_fp16"
+    },
+    {
+      "name": "04_radix_lru_random_fp16_matched",
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "radix",
+      "reference_run": "01_segmented_random_fp16"
+    },
+    {
+      "name": "05_segmented_zipf_fp16",
+      "workload": "zipf",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document"
+    },
+    {
+      "name": "06_document_lru_zipf_fp16_matched",
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "reference_run": "05_segmented_zipf_fp16"
+    }
+  ]
+}

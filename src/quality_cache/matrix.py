@@ -181,10 +181,18 @@ def _validate_selected_runs(config: dict) -> None:
             raise ValueError(
                 f"selected run {name!r} requires labelled train or dev data"
             )
-        if run["policy"] != "none" and run.get(
-            "budget_mb", config.get("budget_mb")
-        ) is None:
-            raise ValueError(f"selected cached run {name!r} requires budget_mb")
+        budget_mb = run.get("budget_mb", config.get("budget_mb"))
+        budget_percent = run.get(
+            "budget_percent", config.get("budget_percent")
+        )
+        if run["policy"] != "none" and budget_mb is None and budget_percent is None:
+            raise ValueError(
+                f"selected cached run {name!r} requires budget_mb or budget_percent"
+            )
+        if budget_mb is not None and budget_percent is not None:
+            raise ValueError(
+                f"selected run {name!r} cannot set both budget_mb and budget_percent"
+            )
         if (
             run.get("validate_agreement", config.get("validate_agreement", False))
             and no_inference
@@ -289,9 +297,18 @@ def _build_selected_commands(
             )
         )
         if policy != "none":
-            command.extend(
-                ("--budget-mb", str(run.get("budget_mb", config.get("budget_mb"))))
+            budget_percent = run.get(
+                "budget_percent", config.get("budget_percent")
             )
+            if budget_percent is not None:
+                command.extend(("--budget-percent", str(budget_percent)))
+            else:
+                command.extend(
+                    (
+                        "--budget-mb",
+                        str(run.get("budget_mb", config.get("budget_mb"))),
+                    )
+                )
         else:
             command.extend(("--baseline-mode", baseline_mode))
         if run.get("max_articles") is not None:

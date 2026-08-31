@@ -10,6 +10,7 @@ from ..data import QualityRequest
 from ..memory import current_process_rss_bytes, nonnegative_delta
 from ..prompt import PROMPT_VERSION, encode_parts, l0_text, suffix_text
 from ..schema import RESULT_SCHEMA_VERSION
+from .context import ExperimentContext, TokenizationContext
 
 
 class NoInferenceRunner:
@@ -26,26 +27,44 @@ class NoInferenceRunner:
         dtype: str = "float16",
         revision: str | None = None,
         prefill_calibration: str | Path | None = None,
+        experiment_context: ExperimentContext | None = None,
     ):
-        from transformers import AutoConfig, AutoTokenizer
-
         source = tokenizer_source or model_name
-        local = Path(source).exists()
         self.model_name = model_name
         self.device_name = device
         self.dtype_name = dtype
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            source,
-            revision=None if local else revision,
-            local_files_only=local,
-        )
-        config_source = source if local and (Path(source) / "config.json").exists() else model_name
-        config_local = Path(config_source).exists()
-        self.config = AutoConfig.from_pretrained(
-            config_source,
-            revision=None if config_local else revision,
-            local_files_only=config_local,
-        )
+        if experiment_context is not None:
+            self.tokenizer, self.config, tokenization_identity = (
+                experiment_context.no_inference_assets(
+                    model_name,
+                    tokenizer_source=tokenizer_source,
+                    revision=revision,
+                )
+            )
+            self.tokenization = experiment_context.tokenization_context(
+                tokenization_identity, self.tokenizer
+            )
+        else:
+            from transformers import AutoConfig, AutoTokenizer
+
+            local = Path(source).exists()
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                source,
+                revision=None if local else revision,
+                local_files_only=local,
+            )
+            config_source = (
+                source
+                if local and (Path(source) / "config.json").exists()
+                else model_name
+            )
+            config_local = Path(config_source).exists()
+            self.config = AutoConfig.from_pretrained(
+                config_source,
+                revision=None if config_local else revision,
+                local_files_only=config_local,
+            )
+            self.tokenization = TokenizationContext(self.tokenizer)
         self.model_revision = str(
             getattr(self.config, "_commit_hash", None) or revision or model_name
         )
@@ -66,10 +85,10 @@ class NoInferenceRunner:
                 self.config.hidden_size // self.config.num_attention_heads,
             )
         )
+        # Kept as a fallback for lightweight tests that construct the runner
+        # without calling __init__.
         self._article_token_cache: dict[str, list[int]] = {}
-        self._l0_token_count = len(
-            self.tokenizer.encode(l0_text(), add_special_tokens=False)
-        )
+        self._l0_token_count = len(self.tokenization.l0_ids)
         self.prefill_cost = load_prefill_cost_model(prefill_calibration)
         self.prefill_cost_model = self.prefill_cost.source
         self._rss_baseline = current_process_rss_bytes()
@@ -130,11 +149,7 @@ class NoInferenceRunner:
         full_hit = matched == len(article_ids)
         partial_article_text_hit = 0 < matched < len(article_ids)
         l0_tokens = self._l0_tokens()
-        suffix_tokens = len(
-            self.tokenizer.encode(
-                suffix_text(request.question), add_special_tokens=False
-            )
-        )
+        suffix_tokens = len(self._suffix_ids(request))
         total_prompt_tokens = l0_tokens + len(article_ids) + suffix_tokens
         cached_prompt_tokens = l0_tokens + matched
         cache_hit_ratio = cached_prompt_tokens / max(1, total_prompt_tokens)
@@ -197,6 +212,8 @@ class NoInferenceRunner:
             "load_s": 0.0,
             "transfer_s": 0.0,
             "dequant_s": 0.0,
+            "restore_s": 0.0,
+            "store_s": 0.0,
             "policy_s": policy_s,
             "prefill_s": prefill_s,
             "ttft_s": -1.0,
@@ -236,11 +253,7 @@ class NoInferenceRunner:
             len(article_ids), storage, block_tokens, cache_strategy
         )
         l0_tokens = self._l0_tokens()
-        suffix_tokens = len(
-            self.tokenizer.encode(
-                suffix_text(request.question), add_special_tokens=False
-            )
-        )
+        suffix_tokens = len(self._suffix_ids(request))
         document_tree_total_tokens = l0_tokens + len(article_ids)
         rss = current_process_rss_bytes()
         return {
@@ -272,6 +285,8 @@ class NoInferenceRunner:
             "load_s": 0.0,
             "transfer_s": 0.0,
             "dequant_s": 0.0,
+            "restore_s": 0.0,
+            "store_s": 0.0,
             "policy_s": 0.0,
             "prefill_s": self._prefill_cost_s(len(article_ids)),
             "ttft_s": -1.0,
@@ -344,6 +359,9 @@ class NoInferenceRunner:
         return elements + scale_bytes
 
     def _article_ids(self, request: QualityRequest) -> list[int]:
+        tokenization = getattr(self, "tokenization", None)
+        if tokenization is not None:
+            return tokenization.article_ids(request)
         article_ids = self._article_token_cache.get(request.article_hash)
         if article_ids is None:
             _, article_ids, _ = encode_parts(
@@ -351,6 +369,16 @@ class NoInferenceRunner:
             )
             self._article_token_cache[request.article_hash] = article_ids
         return article_ids
+
+    def _suffix_ids(self, request: QualityRequest) -> list[int]:
+        tokenization = getattr(self, "tokenization", None)
+        if tokenization is not None:
+            return tokenization.suffix_ids(request)
+        return list(
+            self.tokenizer.encode(
+                suffix_text(request.question), add_special_tokens=False
+            )
+        )
 
     def _cache_key(self, request: QualityRequest, storage: str) -> CacheKey:
         return CacheKey(

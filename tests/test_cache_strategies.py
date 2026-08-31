@@ -210,6 +210,15 @@ class CacheStrategiesTest(unittest.TestCase):
                     self.assertEqual(heap_cache.insertions, scan_cache.insertions)
                     self.assertEqual(heap_cache.evictions, scan_cache.evictions)
 
+    def test_fixed_block_hit_churn_keeps_lazy_heap_bounded(self):
+        cache = FixedBlockPrefixCache(100, block_tokens=2, policy="lru")
+        cache.insert(key("a"), [1, 2], StoredKV(2, simulated_bytes=20), 1.0)
+        for _ in range(5_000):
+            self.assertEqual(cache.lookup(key("a"), [1, 2]).matched_tokens, 2)
+        self.assertLessEqual(
+            len(cache._victim_heap), max(1024, 4 * len(cache.entries))
+        )
+
     def test_radix_shares_prefix_and_returns_longest_match(self):
         cache = RadixPrefixCache(100)
         cache.insert(key("a"), [1, 2, 3, 4], StoredKV(4, simulated_bytes=40), 1.0)
@@ -259,6 +268,104 @@ class CacheStrategiesTest(unittest.TestCase):
         self.assertEqual(cache.lookup(key("b"), [3, 4]).matched_tokens, 0)
         self.assertEqual(cache.lookup(key("c"), [5, 6]).matched_tokens, 2)
         self.assertEqual(cache.stats()["policy"], "gdsf")
+
+    def test_radix_heap_matches_scanning_policy_reference(self):
+        class ScanningRadixCache(RadixPrefixCache):
+            def _pop_victim(self, protected):
+                candidates = [
+                    node
+                    for node in self._nodes_by_id.values()
+                    if not node.children and node.node_id not in protected
+                ]
+                return min(candidates, key=self._victim_priority, default=None)
+
+        prefixes = (
+            [1, 2, 3, 4, 5, 6],
+            [1, 2, 3, 4, 7, 8],
+            [1, 2, 9, 10, 11, 12],
+            [13, 14, 15, 16, 17, 18],
+        )
+        for policy in ("lru", "lfu", "fifo", "gdsf"):
+            with self.subTest(policy=policy):
+                heap_cache = RadixPrefixCache(80, policy=policy)
+                scan_cache = ScanningRadixCache(80, policy=policy)
+                for index in range(80):
+                    tokens = prefixes[(index * 3) % len(prefixes)]
+                    request_key = key(str(index))
+                    self.assertEqual(
+                        heap_cache.lookup(request_key, tokens).matched_tokens,
+                        scan_cache.lookup(request_key, tokens).matched_tokens,
+                    )
+                    cost = float(index % 7 + 1)
+                    for cache in (heap_cache, scan_cache):
+                        cache.insert(
+                            request_key,
+                            tokens,
+                            StoredKV(len(tokens), simulated_bytes=60),
+                            cost,
+                        )
+                    self.assertEqual(heap_cache.current_bytes, scan_cache.current_bytes)
+                    self.assertEqual(
+                        heap_cache.stats()["cached_tokens"],
+                        scan_cache.stats()["cached_tokens"],
+                    )
+                    self.assertEqual(heap_cache.insertions, scan_cache.insertions)
+                    self.assertEqual(heap_cache.evictions, scan_cache.evictions)
+
+    def test_radix_counters_reachability_and_lazy_heap_stay_bounded(self):
+        cache = RadixPrefixCache(80, policy="lru", l0=object())
+        prefixes = (
+            [1, 2, 3, 4, 5, 6],
+            [1, 2, 3, 4, 7, 8],
+            [1, 2, 9, 10, 11, 12],
+            [13, 14, 15, 16, 17, 18],
+        )
+        for index in range(80):
+            tokens = prefixes[index % len(prefixes)]
+            cache.insert(
+                key(str(index)),
+                tokens,
+                StoredKV(len(tokens), simulated_bytes=60),
+                float(index % 5 + 1),
+            )
+            reachable = set()
+            frontier = [
+                child
+                for root in cache.roots.values()
+                for child in root.children.values()
+            ]
+            while frontier:
+                node = frontier.pop()
+                reachable.add(node.node_id)
+                frontier.extend(node.children.values())
+            self.assertEqual(reachable, set(cache._nodes_by_id))
+            self.assertEqual(
+                cache.current_bytes,
+                sum(node.payload.stored_bytes for node in cache._nodes_by_id.values()),
+            )
+            self.assertEqual(
+                cache.stats()["cached_tokens"],
+                sum(node.token_count for node in cache._nodes_by_id.values()),
+            )
+            self.assertLessEqual(cache.current_bytes, cache.max_bytes)
+            self.assertIsNotNone(cache.l0)
+
+        survivor = next(iter(cache._nodes_by_id.values()))
+        survivor_tokens = list(survivor.tokens)
+        survivor_key = key("survivor")
+        # A separate namespace makes this a stable leaf for hit-only churn.
+        cache = RadixPrefixCache(100, policy="lru")
+        cache.insert(
+            survivor_key,
+            survivor_tokens,
+            StoredKV(len(survivor_tokens), simulated_bytes=20),
+            1.0,
+        )
+        for _ in range(5_000):
+            cache.lookup(survivor_key, survivor_tokens)
+        self.assertLessEqual(
+            len(cache._victim_heap), max(1024, 4 * len(cache._nodes_by_id))
+        )
 
     def test_namespace_identity_prevents_cross_model_hits(self):
         cache = RadixPrefixCache(100)

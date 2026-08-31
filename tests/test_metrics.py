@@ -4,6 +4,27 @@ from src.quality_cache.reporting import summarize
 
 
 class MetricsTest(unittest.TestCase):
+    def test_combined_restore_is_not_reported_as_an_isolated_stage(self):
+        summary = summarize(
+            [
+                {
+                    "cache_hit": False,
+                    "ttft_s": 0.2,
+                    "restore_s": 0.03,
+                    "store_s": 0.02,
+                    "load_s": 0.0,
+                    "transfer_s": 0.0,
+                    "dequant_s": 0.0,
+                }
+            ]
+        )
+
+        self.assertEqual(summary["restore_mean_s"], 0.03)
+        self.assertEqual(summary["store_mean_s"], 0.02)
+        self.assertEqual(summary["load_mean_s"], 0.0)
+        self.assertEqual(summary["transfer_mean_s"], 0.0)
+        self.assertEqual(summary["dequant_mean_s"], 0.0)
+
     def test_fractional_token_hit_rates_are_macro_and_micro_averaged(self):
         rows = [
             {

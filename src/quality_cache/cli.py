@@ -29,7 +29,12 @@ from .reporting import (
     write_jsonl,
     write_manifest,
 )
-from .schema import PREFILL_CALIBRATION_SCHEMA_VERSION, RESULT_SCHEMA_VERSION
+from .schema import (
+    INFERENCE_TIMING_SCOPE,
+    NO_INFERENCE_TIMING_SCOPE,
+    PREFILL_CALIBRATION_SCHEMA_VERSION,
+    RESULT_SCHEMA_VERSION,
+)
 from .simulation import (
     article_sizes,
     farthest_next_use_rows,
@@ -215,6 +220,11 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--output-dir", type=Path, required=True)
     analyze.add_argument("--bootstrap-samples", type=_positive_int, default=20_000)
     analyze.add_argument("--seed", type=int, default=42)
+    analyze.add_argument(
+        "--suite-config",
+        type=Path,
+        help="JSON run specification; defaults to the frozen 1.5B confirmation suite",
+    )
     add_matrix_parser(sub)
     return parser
 
@@ -246,7 +256,7 @@ def _nonnegative_float(value: str) -> float:
     return parsed
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, experiment_context=None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "plot":
         for path in make_primary_figures(args.summary_csv, args.output_dir):
@@ -281,15 +291,31 @@ def main(argv: list[str] | None = None) -> int:
             args.output_dir,
             bootstrap_samples=args.bootstrap_samples,
             seed=args.seed,
+            suite_config=args.suite_config,
         )
         for path in paths:
             print(path)
         return 0
     if args.command == "matrix":
-        return run_matrix(args, main)
-    articles = load_quality_split(
-        args.dataset, split=args.split, verify_official_counts=args.verify_counts
-    )
+        from .inference.context import ExperimentContext
+
+        context = experiment_context or ExperimentContext()
+        return run_matrix(
+            args,
+            lambda command: main(command, experiment_context=context),
+        )
+    if experiment_context is None:
+        articles = load_quality_split(
+            args.dataset,
+            split=args.split,
+            verify_official_counts=args.verify_counts,
+        )
+    else:
+        articles = experiment_context.load_articles(
+            args.dataset,
+            split=args.split,
+            verify_official_counts=args.verify_counts,
+        )
     if args.command == "validate-data":
         questions = sum(len(article.questions) for article in articles)
         print(json.dumps({
@@ -301,11 +327,15 @@ def main(argv: list[str] | None = None) -> int:
         }, indent=2))
         return 0
     if args.command == "calibrate-prefill":
-        return _calibrate_prefill(args, articles)
-    return _simulate(args, articles) if args.command == "simulate" else _run(args, articles)
+        return _calibrate_prefill(args, articles, experiment_context)
+    return (
+        _simulate(args, articles)
+        if args.command == "simulate"
+        else _run(args, articles, experiment_context)
+    )
 
 
-def _calibrate_prefill(args, articles) -> int:
+def _calibrate_prefill(args, articles, experiment_context=None) -> int:
     if args.warmup < 0:
         raise ValueError("--warmup cannot be negative")
     from .inference.model import QualityModelRunner
@@ -315,6 +345,7 @@ def _calibrate_prefill(args, articles) -> int:
         device=args.device,
         dtype=args.dtype,
         revision=args.model_revision,
+        experiment_context=experiment_context,
     )
     first_requests = list(
         {request.article_id: request for request in flatten_requests(articles)}.values()
@@ -537,7 +568,7 @@ def _simulate(args, articles) -> int:
     return 0
 
 
-def _run(args, articles) -> int:
+def _run(args, articles, experiment_context=None) -> int:
     if args.storage == "accelerator-fp16" and args.device not in {"cuda", "mps"}:
         raise ValueError("accelerator-fp16 storage requires --device cuda or mps")
     if args.no_inference and args.validate_agreement:
@@ -591,12 +622,17 @@ def _run(args, articles) -> int:
             dtype=args.dtype,
             revision=args.model_revision,
             prefill_calibration=args.prefill_calibration,
+            experiment_context=experiment_context,
         )
     else:
         from .inference.model import QualityModelRunner
 
         runner = QualityModelRunner(
-            args.model, device=args.device, dtype=args.dtype, revision=args.model_revision
+            args.model,
+            device=args.device,
+            dtype=args.dtype,
+            revision=args.model_revision,
+            experiment_context=experiment_context,
         )
     args.resolved_agreement_atol = (
         args.agreement_atol
@@ -628,7 +664,9 @@ def _run(args, articles) -> int:
     cache = None
     if args.policy != "none":
         if budget_bytes <= 0:
-            raise ValueError("--budget-mb must be positive when caching is enabled")
+            raise ValueError(
+                "--budget-mb or --budget-percent must be positive when caching is enabled"
+            )
         cache = runner.new_cache(
             budget_bytes,
             args.policy,
@@ -710,6 +748,11 @@ def _run(args, articles) -> int:
             "prefill_is_simulated": args.no_inference,
             "offline_prefill_s": offline_prefill_s,
             "prefill_cost_model": runner.prefill_cost_model,
+            "timing_scope": (
+                NO_INFERENCE_TIMING_SCOPE
+                if args.no_inference
+                else INFERENCE_TIMING_SCOPE
+            ),
         })
         if reference_rows is not None:
             attach_offline_reference(
@@ -763,6 +806,11 @@ def _run(args, articles) -> int:
         "budget_percent": args.budget_percent,
         "working_set_bytes": corpus_working_set,
         "prefill_cost_model": runner.prefill_cost_model,
+        "timing_scope": (
+            NO_INFERENCE_TIMING_SCOPE
+            if args.no_inference
+            else INFERENCE_TIMING_SCOPE
+        ),
         "agreement_atol": args.resolved_agreement_atol,
         "reference_mode": (
             "offline-jsonl" if args.reference_jsonl is not None else None
@@ -786,6 +834,10 @@ def _run(args, articles) -> int:
 
 
 def _manifest(args, run_type, runner=None):
+    simulated_timing = bool(getattr(args, "no_inference", False)) or run_type in {
+        "no-inference",
+        "simulation",
+    }
     return {
         "result_schema_version": RESULT_SCHEMA_VERSION,
         "run_type": run_type,
@@ -818,6 +870,11 @@ def _manifest(args, run_type, runner=None):
         ),
         "execution_mode": (
             "no-inference" if getattr(args, "no_inference", False) else run_type
+        ),
+        "timing_scope": (
+            NO_INFERENCE_TIMING_SCOPE
+            if simulated_timing
+            else INFERENCE_TIMING_SCOPE
         ),
         "cache_strategy": getattr(args, "cache_strategy", "document"),
         "baseline_mode": getattr(args, "baseline_mode", None),

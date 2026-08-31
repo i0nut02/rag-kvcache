@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from typing import Any, Protocol
 
 from ..inference.tensors import KVBlock, slice_stored_blocks
 from .article import CacheKey
@@ -54,6 +55,29 @@ class PrefixLookup:
         if self.requested_tokens <= 0:
             return 0.0
         return self.matched_tokens / self.requested_tokens
+
+
+class PrefixCache(Protocol):
+    """Structural interface shared by every prefix-cache organization."""
+
+    strategy: str
+    l0: Any
+    max_bytes: int
+    current_bytes: int
+
+    def __len__(self) -> int: ...
+
+    def lookup(self, key: CacheKey, tokens: list[int]) -> PrefixLookup: ...
+
+    def insert(
+        self,
+        key: CacheKey,
+        tokens: list[int],
+        payload: StoredKV,
+        prefill_cost_s: float,
+    ) -> bool: ...
+
+    def stats(self) -> dict[str, Any]: ...
 
 
 def cache_namespace(key: CacheKey) -> str:

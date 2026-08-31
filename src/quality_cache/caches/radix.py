@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 import sys
 from dataclasses import dataclass, field
 from typing import Any
@@ -23,6 +24,8 @@ class _RadixNode:
     inserted_at: int = 0
     last_access: int = 0
     priority: float = 0.0
+    node_id: int = 0
+    heap_version: int = 0
 
 
 class RadixPrefixCache:
@@ -39,6 +42,10 @@ class RadixPrefixCache:
         self.policy = policy
         self.l0 = l0
         self.roots: dict[str, _RadixNode] = {}
+        self._nodes_by_id: dict[int, _RadixNode] = {}
+        self._victim_heap: list[tuple[tuple[Any, ...], int, int]] = []
+        self._next_node_id = 1
+        self._cached_tokens = 0
         self.current_bytes = 0
         self.clock = 0
         self.gdsf_clock = 0.0
@@ -47,7 +54,7 @@ class RadixPrefixCache:
         self._stats_cache: dict[str, Any] | None = None
 
     def __len__(self):
-        return sum(1 for _ in self._nodes())
+        return len(self._nodes_by_id)
 
     def _root(self, key: CacheKey) -> _RadixNode:
         namespace = cache_namespace(key)
@@ -73,11 +80,13 @@ class RadixPrefixCache:
                 child.last_access = self.clock
                 if self.policy == "gdsf":
                     child.priority = self._gdsf_priority(child)
+                self._refresh_leaf(child)
                 payloads.append(child.payload.slice(0, common))
                 position += common
             if common != child.token_count:
                 break
             node = child
+        self._maybe_compact_heap()
         return PrefixLookup(position, payloads, len(tokens))
 
     def insert(
@@ -104,9 +113,8 @@ class RadixPrefixCache:
                 )
                 new.priority = self._gdsf_priority(new)
                 new.terminal_ids.add((key.article_id, key.article_hash))
-                node.children[suffix[0]] = new
-                protected.add(id(new))
-                self.current_bytes += new.payload.stored_bytes
+                self._attach_new_node(node, new)
+                protected.add(new.node_id)
                 self.insertions += 1
                 node = new
                 position = len(tokens)
@@ -117,9 +125,16 @@ class RadixPrefixCache:
                 node = child
                 position += common
                 continue
+            child_was_leaf = not child.children
+            if child_was_leaf:
+                self._invalidate_candidate(child)
+            old_child_bytes = child.payload.stored_bytes
+            old_child_tokens = child.token_count
+            common_payload = child.payload.slice(0, common)
+            remaining_payload = child.payload.slice(common, child.payload.token_count)
             common_node = _RadixNode(
                 child.tokens[:common],
-                child.payload.slice(0, common),
+                common_payload,
                 common,
                 parent=node,
                 prefill_cost_s=child.prefill_cost_s
@@ -131,9 +146,8 @@ class RadixPrefixCache:
             )
             common_node.priority = self._gdsf_priority(common_node)
             node.children[common_node.tokens[0]] = common_node
-            old_child_tokens = child.token_count
             child.tokens = child.tokens[common:]
-            child.payload = child.payload.slice(common, child.payload.token_count)
+            child.payload = remaining_payload
             child.token_count -= common
             child.prefill_cost_s = (
                 child.prefill_cost_s * child.token_count / max(1, old_child_tokens)
@@ -141,6 +155,11 @@ class RadixPrefixCache:
             child.priority = self._gdsf_priority(child)
             child.parent = common_node
             common_node.children[child.tokens[0]] = child
+            self.current_bytes += child.payload.stored_bytes - old_child_bytes
+            self._cached_tokens += child.token_count - old_child_tokens
+            self._register_node(common_node)
+            if child_was_leaf:
+                self._schedule_leaf(child)
             self.insertions += 1
             if position + common == len(tokens):
                 common_node.terminal_ids.add((key.article_id, key.article_hash))
@@ -161,58 +180,124 @@ class RadixPrefixCache:
                 )
                 new.priority = self._gdsf_priority(new)
                 new.terminal_ids.add((key.article_id, key.article_hash))
-                common_node.children[suffix[0]] = new
-                protected.add(id(new))
+                self._attach_new_node(common_node, new)
+                protected.add(new.node_id)
                 self.insertions += 1
                 node = new
                 position = len(tokens)
             break
         if position == len(tokens):
             node.terminal_ids.add((key.article_id, key.article_hash))
-        self.current_bytes = sum(item.payload.stored_bytes for item in self._nodes())
         while self.current_bytes > self.max_bytes:
             self._evict_leaf(protected)
         self._assert_budget()
+        self._maybe_compact_heap()
         self._invalidate_stats()
         return self.lookup(key, tokens).matched_tokens > 0
 
     def _evict_leaf(self, protected: set[int] | None = None):
         protected = protected or set()
-        leaves = [
-            node
-            for node in self._nodes()
-            if not node.children and id(node) not in protected
-        ]
-        if not leaves and protected:
-            leaves = [node for node in self._nodes() if not node.children]
-        if not leaves:
+        victim = self._pop_victim(protected)
+        if victim is None and protected:
+            victim = self._pop_victim(set())
+        if victim is None:
             raise RuntimeError("radix cache has no eviction victim")
-        victim = self._victim(leaves)
         parent = victim.parent
         if parent is None:
             raise RuntimeError("cannot evict radix root")
-        parent.children.pop(victim.tokens[0])
-        self.current_bytes -= victim.payload.stored_bytes
+        removed = parent.children.pop(victim.tokens[0])
+        if removed is not victim:
+            raise RuntimeError("radix parent no longer owns selected victim")
         if self.policy == "gdsf":
             self.gdsf_clock = victim.priority
+        self._unregister_node(victim)
         victim.payload.blocks.clear()
         self.evictions += 1
+        if parent.node_id and not parent.children:
+            self._schedule_leaf(parent)
         self._invalidate_stats()
 
-    def _victim(self, leaves: list[_RadixNode]) -> _RadixNode:
+    def _victim_priority(self, node: _RadixNode) -> tuple[Any, ...]:
         if self.policy == "lru":
-            return min(leaves, key=lambda node: (node.last_access, node.inserted_at))
+            return (node.last_access, node.inserted_at, node.node_id)
         if self.policy == "lfu":
-            return min(
-                leaves,
-                key=lambda node: (node.frequency, node.last_access, node.inserted_at),
+            return (
+                node.frequency,
+                node.last_access,
+                node.inserted_at,
+                node.node_id,
             )
         if self.policy == "fifo":
-            return min(leaves, key=lambda node: node.inserted_at)
-        return min(
-            leaves,
-            key=lambda node: (node.priority, node.last_access, node.inserted_at),
+            return (node.inserted_at, node.node_id)
+        return (node.priority, node.last_access, node.inserted_at, node.node_id)
+
+    def _register_node(self, node: _RadixNode) -> None:
+        if node.node_id:
+            raise RuntimeError("radix node is already registered")
+        node.node_id = self._next_node_id
+        self._next_node_id += 1
+        self._nodes_by_id[node.node_id] = node
+        self.current_bytes += node.payload.stored_bytes
+        self._cached_tokens += node.token_count
+
+    def _unregister_node(self, node: _RadixNode) -> None:
+        node.heap_version += 1
+        removed = self._nodes_by_id.pop(node.node_id, None)
+        if removed is not node:
+            raise RuntimeError("radix victim is not registered")
+        self.current_bytes -= node.payload.stored_bytes
+        self._cached_tokens -= node.token_count
+
+    def _attach_new_node(self, parent: _RadixNode, node: _RadixNode) -> None:
+        if parent.node_id and not parent.children:
+            self._invalidate_candidate(parent)
+        node.parent = parent
+        parent.children[node.tokens[0]] = node
+        self._register_node(node)
+        self._schedule_leaf(node)
+
+    @staticmethod
+    def _invalidate_candidate(node: _RadixNode) -> None:
+        node.heap_version += 1
+
+    def _schedule_leaf(self, node: _RadixNode) -> None:
+        if node.node_id == 0 or node.children:
+            return
+        node.heap_version += 1
+        heapq.heappush(
+            self._victim_heap,
+            (self._victim_priority(node), node.heap_version, node.node_id),
         )
+
+    def _refresh_leaf(self, node: _RadixNode) -> None:
+        if not node.children:
+            self._schedule_leaf(node)
+
+    def _pop_victim(self, protected: set[int]) -> _RadixNode | None:
+        deferred: list[tuple[tuple[Any, ...], int, int]] = []
+        victim = None
+        while self._victim_heap:
+            item = heapq.heappop(self._victim_heap)
+            _, version, node_id = item
+            node = self._nodes_by_id.get(node_id)
+            if node is None or node.heap_version != version or node.children:
+                continue
+            if node_id in protected:
+                deferred.append(item)
+                continue
+            victim = node
+            break
+        for item in deferred:
+            heapq.heappush(self._victim_heap, item)
+        return victim
+
+    def _maybe_compact_heap(self) -> None:
+        if len(self._victim_heap) <= max(1024, 4 * len(self._nodes_by_id)):
+            return
+        self._victim_heap.clear()
+        for node in self._nodes_by_id.values():
+            if not node.children:
+                self._schedule_leaf(node)
 
     def _gdsf_priority(self, node: _RadixNode) -> float:
         return (
@@ -223,15 +308,11 @@ class RadixPrefixCache:
         )
 
     def _nodes(self):
-        stack = [child for root in self.roots.values() for child in root.children.values()]
-        while stack:
-            node = stack.pop()
-            yield node
-            stack.extend(node.children.values())
+        yield from self._nodes_by_id.values()
 
     def stats(self) -> dict[str, Any]:
         if self._stats_cache is not None:
-            return dict(self._stats_cache)
+            return self._with_heap_metadata(dict(self._stats_cache))
         nodes = list(self._nodes())
 
         terminal_counts: dict[int, int] = {}
@@ -253,6 +334,7 @@ class RadixPrefixCache:
             if terminal_counts[id(node)] > 1
         )
         metadata_bytes = sys.getsizeof(self.roots)
+        metadata_bytes += sys.getsizeof(self._nodes_by_id)
         for namespace, root in self.roots.items():
             metadata_bytes += sys.getsizeof(namespace) + sys.getsizeof(root)
             metadata_bytes += sys.getsizeof(root.children)
@@ -272,8 +354,8 @@ class RadixPrefixCache:
             "cached_articles": sum(len(node.terminal_ids) for node in nodes),
             "cached_documents": sum(len(node.terminal_ids) for node in nodes),
             "cached_blocks": 0,
-            "radix_nodes": len(nodes),
-            "cached_tokens": sum(node.token_count for node in nodes),
+            "radix_nodes": len(self._nodes_by_id),
+            "cached_tokens": self._cached_tokens,
             "insertions": self.insertions,
             "evictions": self.evictions,
             "policy": self.policy,
@@ -283,10 +365,20 @@ class RadixPrefixCache:
             "stranded_bytes": 0,
         }
         self._stats_cache = dict(stats)
+        return self._with_heap_metadata(stats)
+
+    def _with_heap_metadata(self, stats: dict[str, Any]) -> dict[str, Any]:
+        heap_bytes = sys.getsizeof(self._victim_heap) + len(
+            self._victim_heap
+        ) * sys.getsizeof(((), 0, 0))
+        stats["metadata_bytes"] += heap_bytes
+        stats["cache_footprint_bytes"] = self.current_bytes + stats["metadata_bytes"]
         return stats
 
     def _assert_budget(self):
         assert self.current_bytes <= self.max_bytes
+        assert self.current_bytes >= 0
+        assert self._cached_tokens >= 0
 
     def _invalidate_stats(self) -> None:
         self._stats_cache = None
