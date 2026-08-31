@@ -92,6 +92,7 @@ model tokenizer and measured tensor bytes. CPU transfer and INT8 dequantization
 must remain inside TTFT. Results apply to repeated stable-document QA, not to
 arbitrary retrieved-document composition or rapidly changing corpora.
 
-The only remaining model experiment is a small matched-working-set-fraction
-check with Qwen2.5-0.5B. The arena/Triton extension and its exit criteria are
-specified in [`next_steps.md`](next_steps.md).
+The matched-working-set Qwen2.5-0.5B check is complete and reproduces the main
+cache-only result; its evidence is in
+[`qwen_0.5b_results.md`](qwen_0.5b_results.md). The remaining arena/Triton
+extension and its exit criteria are specified in [`next_steps.md`](next_steps.md).

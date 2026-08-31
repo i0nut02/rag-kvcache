@@ -1,9 +1,10 @@
 # Completed follow-ups and remaining work
 
 The 1.5B empirical baseline is now frozen. Fixed-block granularity, the larger
-INT8 correctness check, and run-to-run timing repetitions are complete. The
-full interpretation is in [`results.md`](results.md); this page separates
-finished evidence from the remaining implementation plan.
+INT8 correctness check, run-to-run timing repetitions, and the matched-capacity
+0.5B confirmation are complete. The full interpretation is in
+[`results.md`](results.md); this page separates finished evidence from the
+remaining implementation plan.
 
 ## Decisions now supported by data
 
@@ -100,37 +101,21 @@ These timing changes introduce result schema `quality-kv-v3`. The frozen 1.5B
 archive remains v2 and is not invalidated; it must not be concatenated with new
 v3 rows. The new 0.5B scale check is internally aligned and entirely v3.
 
-## Ready to run: one scale-confirmation model
+## Completed follow-up 4: matched-working-set 0.5B confirmation
 
-Repeat only the decisive comparisons with
-`Qwen/Qwen2.5-0.5B-Instruct`:
+The six-run Qwen2.5-0.5B scale check is complete at 22.80% of its FP16
+article-KV working set. Document LRU reaches `1.206x` cache-only speedup on
+random traffic and `2.154x` on Zipf, with 20.31% and 55.93% article-token hit.
+Every FP16 cached label agrees with its aligned segmented reference.
 
-1. segmented control, document LRU, fixed-block 256, and radix LRU on random;
-2. segmented control and document LRU on Zipf;
-3. optionally one CPU INT8 document run after FP16 behavior is established.
+Document caching has the lowest random mean TTFT. It is 4.6% faster than the
+tuned fixed-block-256 baseline and 0.4% faster than radix, while retaining much
+smaller metadata and policy overhead. The result meets all planned exit
+criteria and supports scale robustness within the Qwen2.5 family. Protocol,
+tables, caveats, and provenance are frozen in
+[`qwen_0.5b_results.md`](qwen_0.5b_results.md).
 
-Choose the smaller model's budget by matching the 1.5B experiment's fraction
-of the FP16 article-KV working set. Do not reuse 4 GiB blindly: the same byte
-budget would make the smaller model's cache regime much easier. Keep seed 42,
-100 requests, the same prompts, and the same dev traces. This is a compact
-generalization check, not another full policy matrix.
-
-Exit criteria:
-
-- aligned traces and manifests;
-- identical labels for all FP16 cache paths relative to segmented execution;
-- the document strategy remains competitive with fixed-block 256 and radix;
-- report speedup and hit rate at the matched working-set fraction.
-
-The six-run matrix and configuration-driven analyzer are now implemented in
-`configs/qwen_0.5b_confirmation.json` and
-`configs/qwen_0.5b_analysis.json`. The matched fraction is
-`22.80130165664403%`, derived from the frozen 1.5B 4 GiB working-set ratio.
-Use the staged Colab commands in
-[`qwen_0.5b_confirmation.md`](qwen_0.5b_confirmation.md); do not substitute a
-4 GiB byte budget for the smaller model.
-
-## Remaining implementation 2: KV arena and Triton restore
+## Remaining implementation: KV arena and Triton restore
 
 The strongest additional systems contribution is a small document-owned arena
 plus a fused INT8 restore kernel:

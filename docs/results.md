@@ -1,9 +1,11 @@
 # Consolidated experimental results
 
-Status: 18 August 2026. This is the report-ready interpretation of the
+Status: 31 August 2026. This is the report-ready interpretation of the
 completed QuALITY trace, inference, block-size, INT8, and timing-repetition
 experiments. Detailed source tables and figures for the first confirmation are
 in [`generated/inference_confirmation`](generated/inference_confirmation/results.md).
+The matched-working-set Qwen2.5-0.5B scale confirmation is reported separately
+in [`qwen_0.5b_results.md`](qwen_0.5b_results.md).
 
 ## Executive result
 
@@ -48,6 +50,7 @@ The project uses two separate dataset roles and does not mix their metrics:
 | Fixed-block inference follow-up | Dev | 4 runs x 100 | Select 64 versus 256 tokens after rejecting 16-token blocks |
 | INT8 accuracy follow-up | Dev | 2 aligned runs x 300 | Larger FP16-versus-INT8 agreement and accuracy check |
 | Timing repetitions | Dev | 8 new runs x 100 | Repetitions 2 and 3 for segmented/document paths on random and Zipf traces |
+| Qwen2.5-0.5B scale confirmation | Dev | 6 aligned runs x 100 | Matched-working-set check of the decisive random and Zipf comparisons |
 
 All synthetic traces use seed 42. `grouped` keeps questions for one article
 consecutive, `random` shuffles all real questions, and `zipf` samples article
@@ -246,6 +249,21 @@ Paired cache/control labels match for every request in repetitions 2 and 3.
 | GDSF | Skewed/constrained policy comparison | Useful in some Zipf capacity traces; no measured TTFT win over LRU in the selected 100 requests |
 | CPU INT8 document cache | Optional capacity mode | Roughly doubles useful capacity and improves median latency, with a measured 2/300 quality cost |
 
+## Matched-working-set 0.5B confirmation
+
+The six-run Qwen2.5-0.5B experiment holds the cache at the same 22.80% fraction
+of the model's FP16 article-KV working set as the 1.5B 4 GiB experiment. It
+reproduces the main result: document LRU gives `1.206x` cache-only speedup on
+random traffic and `2.154x` on Zipf, with article-token hit rates of 20.31% and
+55.93%. All four FP16 cached paths preserve every segmented-reference label.
+
+On random traffic, document caching is 4.6% faster than fixed-block 256 and
+0.4% faster than radix in mean TTFT. Fixed-block has 1,293 evictions versus 56
+for document caching and spends about 51 times as much policy time per request.
+Radix is close in latency but uses about 307 times as much peak metadata. The
+full protocol, confidence intervals, correctness table, limitations, and input
+hashes are in [`qwen_0.5b_results.md`](qwen_0.5b_results.md).
+
 ## Validity limits
 
 - QuALITY is document-grounded QA over a bounded stable collection, not
@@ -255,8 +273,9 @@ Paired cache/control labels match for every request in repetitions 2 and 3.
   claims. Accuracy comes from the smaller dev inference traces.
 - Dev accuracy values depend on workload sampling and trace length. In
   particular, Zipf repeats questions and is not a full-split accuracy estimate.
-- Only Qwen2.5-1.5B and one CUDA environment have been measured. A second model
-  is needed for a generalization claim.
+- Only two sizes from the same Qwen2.5 family and one CUDA environment have
+  been measured. This supports scale robustness within the family, not a
+  cross-architecture or multi-GPU generalization claim.
 - The original request-level bootstrap intervals capture within-trace request
   variation; the three-run ranges capture a small amount of system variation.
   Neither is a multi-GPU confidence interval.
@@ -267,17 +286,15 @@ Paired cache/control labels match for every request in repetitions 2 and 3.
 
 ## Remaining work
 
-The empirical 1.5B baseline is now sufficient for the course report. The next
-experiments should be narrow rather than another full cross-product:
+The empirical 1.5B baseline and matched-working-set 0.5B scale check are now
+sufficient for the course report. Remaining experiments should be narrow
+rather than another full cross-product:
 
-1. repeat the decisive random and Zipf comparisons with
-   `Qwen/Qwen2.5-0.5B-Instruct`, using the same *working-set fraction* as the
-   1.5B 4 GiB run;
-2. implement the document-owned KV arena and a fused Triton INT8
+1. implement the document-owned KV arena and a fused Triton INT8
    restore/dequantization kernel;
-3. microbenchmark PyTorch versus Triton restore by tokens and bytes, then rerun
+2. microbenchmark PyTorch versus Triton restore by tokens and bytes, then rerun
    only segmented, document FP16, and document INT8 end-to-end paths;
-4. update the final figures with three-run timing summaries and present INT8 as
+3. update the final figures with three-run timing summaries and present INT8 as
    a Pareto tradeoff rather than a lossless optimization.
 
 The concrete sequence is maintained in [`next_steps.md`](next_steps.md).

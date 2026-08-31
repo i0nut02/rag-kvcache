@@ -251,7 +251,8 @@ The current generated results are in
 [`docs/generated/inference_confirmation/results.md`](docs/generated/inference_confirmation/results.md),
 the completed follow-ups are consolidated in [`docs/results.md`](docs/results.md),
 the staged Qwen2.5-0.5B scale-confirmation commands are in
-[`docs/qwen_0.5b_confirmation.md`](docs/qwen_0.5b_confirmation.md), and the
+[`docs/qwen_0.5b_confirmation.md`](docs/qwen_0.5b_confirmation.md), its completed
+results are in [`docs/qwen_0.5b_results.md`](docs/qwen_0.5b_results.md), and the
 remaining arena/Triton work is in [`docs/next_steps.md`](docs/next_steps.md).
 
 Every result receives a neighboring manifest containing the result schema and dataset checksum,

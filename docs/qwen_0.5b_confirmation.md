@@ -1,7 +1,9 @@
 # Qwen2.5-0.5B matched-working-set confirmation
 
-This is the next empirical step after the frozen Qwen2.5-1.5B baseline. It is
-a six-run scale check, not a new exhaustive matrix:
+This is the reproducibility protocol for the completed empirical step after the
+frozen Qwen2.5-1.5B baseline. It is a six-run scale check, not a new exhaustive
+matrix. Its validated findings are recorded in
+[`qwen_0.5b_results.md`](qwen_0.5b_results.md).
 
 | Workload | Runs |
 |---|---|

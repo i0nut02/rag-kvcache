@@ -111,11 +111,11 @@ configs are `fixed_block_inference.json`, `int8_accuracy_confirmation.json`,
 and `timing_repetitions.json` under `configs/`. Do not rerun them unless you are
 checking reproducibility on a new accelerator.
 
-The next run is the six-path Qwen2.5-0.5B confirmation at the same FP16
-working-set fraction as the frozen 1.5B 4 GiB baseline. Do not use 4 GiB for
-the smaller model. Follow the exact smoke, confirmation, analysis, and download
-commands in
-[`qwen_0.5b_confirmation.md`](qwen_0.5b_confirmation.md).
+The six-path Qwen2.5-0.5B confirmation is also complete. Its results are in
+[`qwen_0.5b_results.md`](qwen_0.5b_results.md), and its reproducibility commands
+remain in [`qwen_0.5b_confirmation.md`](qwen_0.5b_confirmation.md). Do not use a
+fixed 4 GiB budget when reproducing it; the experiment matches the 1.5B run's
+FP16 working-set fraction.
 
 ## 5. Preserve results before the Colab runtime expires
 
@@ -125,7 +125,7 @@ from google.colab import files
 files.download("quality-colab-results.zip")
 ```
 
-The current repository contains the legacy tensor-store implementation and the
+The current repository contains the tensor-store implementation and the
 document, fixed-block, and radix logical cache strategies. The planned paged
 arena and Triton restore backend will use additional CLI flags once implemented;
 the commands above do not claim those backends are already available.
