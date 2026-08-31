@@ -178,7 +178,7 @@ class FixedBlockPrefixCache:
             self._child_counts[victim.parent] = remaining
             if remaining == 0:
                 self._schedule_leaf(parent)
-        victim.payload.blocks.clear()
+        victim.payload.release()
         self.evictions += 1
         return True
 

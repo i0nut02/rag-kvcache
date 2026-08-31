@@ -6,14 +6,14 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from ..inference.tensors import KVBlock, slice_stored_blocks
+from ..inference.tensors import KVBlock, release_blocks, slice_stored_blocks
 from .article import CacheKey
 
 
 @dataclass
 class StoredKV:
     token_count: int
-    blocks: list[KVBlock] = field(default_factory=list)
+    blocks: list[Any] = field(default_factory=list)
     simulated_bytes: int | None = None
 
     @property
@@ -21,6 +21,19 @@ class StoredKV:
         if self.simulated_bytes is not None:
             return int(self.simulated_bytes)
         return sum(block.stored_bytes for block in self.blocks)
+
+    @property
+    def useful_bytes(self) -> int:
+        if self.simulated_bytes is not None:
+            return int(self.simulated_bytes)
+        return sum(
+            int(getattr(block, "useful_bytes", block.stored_bytes))
+            for block in self.blocks
+        )
+
+    @property
+    def stranded_bytes(self) -> int:
+        return self.stored_bytes - self.useful_bytes
 
     def slice(self, start: int, end: int) -> "StoredKV":
         if start < 0 or end < start or end > self.token_count:
@@ -34,6 +47,10 @@ class StoredKV:
             blocks=slice_stored_blocks(self.blocks, start, end),
         )
 
+    def release(self) -> None:
+        if self.simulated_bytes is None:
+            release_blocks(self.blocks)
+
 
 @dataclass
 class PrefixLookup:
@@ -42,12 +59,17 @@ class PrefixLookup:
     requested_tokens: int = 0
 
     @property
-    def blocks(self) -> list[KVBlock]:
+    def blocks(self) -> list[Any]:
         return [block for payload in self.payloads for block in payload.blocks]
 
     @property
     def stored_bytes(self) -> int:
         return sum(payload.stored_bytes for payload in self.payloads)
+
+    @property
+    def useful_bytes(self) -> int:
+        """Matched payload bytes excluding allocator-internal padding."""
+        return sum(payload.useful_bytes for payload in self.payloads)
 
     @property
     def hit_ratio(self) -> float:

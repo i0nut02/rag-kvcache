@@ -19,6 +19,7 @@ def _document_cache(max_bytes: int, **options) -> PrefixCache:
         policy=options["policy"],
         max_articles=options["max_articles"],
         l0=options["l0"],
+        arena=options.get("arena"),
     )
 
 
@@ -55,6 +56,7 @@ def new_prefix_cache(
     max_articles: int | None = None,
     block_tokens: int = 16,
     l0=None,
+    arena=None,
 ):
     builder = CACHE_BUILDERS.get(strategy)
     if builder is None:
@@ -67,4 +69,5 @@ def new_prefix_cache(
         max_articles=max_articles,
         block_tokens=block_tokens,
         l0=l0,
+        arena=arena,
     )

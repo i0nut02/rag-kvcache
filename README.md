@@ -62,6 +62,15 @@ for each layer and KV head. `accelerator-fp16` resolves to CUDA or MPS from
 `--device`, so model weights and cached KV remain on the same accelerator. CPU
 restoration, transfer, and INT8 dequantization are part of TTFT.
 
+Document + accelerator FP16 can additionally use `--kv-backend arena`, a
+preallocated page-backed slab with generation-checked document handles and
+explicit stranded-byte accounting. CPU INT8 can use
+`--int8-restore-backend triton` on CUDA to transfer compact values/scales and
+fuse dequantization with the final FP16/BF16 cast; `auto` falls back to PyTorch
+when Triton is unavailable. These are new experimental backends and do not
+alter the frozen baseline results. Their SGLang-inspired design and matched
+runbook are in [docs/arena_triton.md](docs/arena_triton.md).
+
 The model scores the next-token probability of A/B/C/D. If any label is not a
 single token, it falls back to full option-sequence likelihood.
 
@@ -252,8 +261,10 @@ The current generated results are in
 the completed follow-ups are consolidated in [`docs/results.md`](docs/results.md),
 the staged Qwen2.5-0.5B scale-confirmation commands are in
 [`docs/qwen_0.5b_confirmation.md`](docs/qwen_0.5b_confirmation.md), its completed
-results are in [`docs/qwen_0.5b_results.md`](docs/qwen_0.5b_results.md), and the
-remaining arena/Triton work is in [`docs/next_steps.md`](docs/next_steps.md).
+results are in [`docs/qwen_0.5b_results.md`](docs/qwen_0.5b_results.md). The
+implemented arena/Triton phase and commands are in
+[`docs/arena_triton.md`](docs/arena_triton.md); its CUDA measurements remain to
+be collected.
 
 Every result receives a neighboring manifest containing the result schema and dataset checksum,
 seed, exact model/tokenizer identifiers, prompt version, policy, workload,

@@ -9,10 +9,11 @@ from dataclasses import asdict, dataclass
 class StageTimings:
     """Disjoint cache-path stages plus the combined restore wall time.
 
-    ``restore_s`` is intentionally a combined diagnostic. It must not be
-    copied into ``load_s``, ``transfer_s``, or ``dequant_s`` because the
-    current PyTorch restore path does not isolate those operations. Those
-    fields remain available for a backend that measures the stages separately.
+    ``restore_s`` is intentionally the combined wall-clock diagnostic. The
+    profiled restore path separately records source-to-device movement,
+    dequantization/kernel execution, and final layer/block assembly in
+    ``transfer_s``, ``dequant_s``, and ``load_s``. They are measured directly
+    and therefore need not sum exactly to the outer Python wall time.
     ``store_s`` covers tensor conversion/storage and excludes cache-policy
     insertion, which remains in ``policy_s``.
     """

@@ -10,10 +10,11 @@ from ..memory import current_process_rss_bytes, nonnegative_delta
 from ..prompt import PROMPT_VERSION, encode_parts
 from ..schema import INFERENCE_TIMING_SCOPE, RESULT_SCHEMA_VERSION
 from .context import ExperimentContext, TokenizationContext, TokenizedPrompt
+from .arena import KVArena
 from .timing import StageTimings
 from .tensors import (
     concatenate_caches,
-    restore_blocks,
+    restore_blocks_profiled,
     sequence_length,
     slice_cache,
     store_blocks,
@@ -115,7 +116,26 @@ class QualityModelRunner:
         *,
         strategy: str = "document",
         block_tokens: int = 16,
+        storage: str = "accelerator-fp16",
+        kv_backend: str = "tensor",
+        arena_page_tokens: int = 256,
     ):
+        arena = None
+        if kv_backend == "arena":
+            if strategy != "document":
+                raise ValueError("the arena backend currently requires document strategy")
+            if storage != "accelerator-fp16":
+                raise ValueError(
+                    "the arena backend currently requires accelerator-fp16 storage"
+                )
+            arena = KVArena(
+                self.l0_cache,
+                budget_bytes,
+                page_tokens=arena_page_tokens,
+                device=self.device,
+            )
+        elif kv_backend != "tensor":
+            raise ValueError("kv_backend must be 'tensor' or 'arena'")
         return new_prefix_cache(
             strategy,
             budget_bytes,
@@ -123,6 +143,7 @@ class QualityModelRunner:
             max_articles=max_articles,
             block_tokens=block_tokens,
             l0=self.l0_cache,
+            arena=arena,
         )
 
     def estimate_article_bytes(
@@ -186,23 +207,77 @@ class QualityModelRunner:
         article_cache = slice_cache(
             full_prefix_cache, self.l0_tokens, self.l0_tokens + len(article_ids)
         )
-        physical_block_tokens = (
-            len(article_ids) if cache.strategy in {"document", "radix"} else block_tokens
-        )
-        blocks = store_blocks(
-            article_cache,
-            storage,
-            max(1, physical_block_tokens),
-            accelerator_device=self.device,
-        )
         measured_prefill = time.perf_counter() - started
-        cache.insert(
+        self._store_article_payload(
+            cache,
             key,
             article_ids,
-            StoredKV(len(article_ids), blocks=blocks),
-            measured_prefill,
+            article_cache,
+            storage=storage,
+            block_tokens=block_tokens,
+            prefill_cost_s=measured_prefill,
         )
         return time.perf_counter() - started
+
+    def _store_article_payload(
+        self,
+        cache: PrefixCache,
+        key: CacheKey,
+        article_ids: list[int],
+        article_cache,
+        *,
+        storage: str,
+        block_tokens: int,
+        prefill_cost_s: float,
+    ) -> tuple[bool, float, float]:
+        """Store one article and return admitted/store/policy measurements.
+
+        A fixed-capacity arena must release policy victims before allocating the
+        incoming document. Object-backed stores retain the historical
+        materialize-then-admit order. Either path transfers ownership of an
+        admitted payload to the cache and explicitly releases a rejected arena
+        allocation.
+        """
+        arena = getattr(cache, "arena", None)
+        policy_s = 0.0
+        if arena is not None:
+            incoming_bytes = arena.allocation_bytes_for_tokens(len(article_ids))
+            policy_started = time.perf_counter()
+            prepared = cache.prepare_insert(key, incoming_bytes)
+            policy_s += time.perf_counter() - policy_started
+            if not prepared:
+                return False, 0.0, policy_s
+            store_started = time.perf_counter()
+            block = arena.store(
+                article_cache,
+                owner=f"{key.article_id}:{key.article_hash}",
+            )
+            self._synchronize()
+            store_s = time.perf_counter() - store_started
+            payload = StoredKV(len(article_ids), blocks=[block])
+        else:
+            physical_block_tokens = (
+                len(article_ids)
+                if cache.strategy in {"document", "radix"}
+                else block_tokens
+            )
+            store_started = time.perf_counter()
+            blocks = store_blocks(
+                article_cache,
+                storage,
+                max(1, physical_block_tokens),
+                accelerator_device=self.device,
+            )
+            self._synchronize()
+            store_s = time.perf_counter() - store_started
+            payload = StoredKV(len(article_ids), blocks=blocks)
+
+        policy_started = time.perf_counter()
+        admitted = cache.insert(key, article_ids, payload, prefill_cost_s)
+        policy_s += time.perf_counter() - policy_started
+        if not admitted and arena is not None:
+            payload.release()
+        return admitted, store_s, policy_s
 
     def _cache_key(self, request: QualityRequest, storage: str) -> CacheKey:
         return CacheKey(
@@ -410,6 +485,7 @@ class QualityModelRunner:
         cache_strategy: str = "document",
         validate_agreement: bool = False,
         agreement_atol: float | None = None,
+        int8_restore_backend: str = "pytorch",
     ) -> dict[str, Any]:
         prompt = self._tokenized_prompt(request)
         l0_ids, article_ids, suffix_ids = (
@@ -444,11 +520,22 @@ class QualityModelRunner:
         partial_article_hit = partial_document_tree_hit
         article_cache_hit_ratio = document_tree_hit_ratio
         restored = tuple()
+        restore_backend_used = "none"
         if matched:
             restore_start = time.perf_counter()
-            restored = restore_blocks(match.blocks, dtype=self.dtype, device=self.device)
+            restore_result = restore_blocks_profiled(
+                match.blocks,
+                dtype=self.dtype,
+                device=self.device,
+                int8_backend=int8_restore_backend,
+            )
+            restored = restore_result.cache
             self._synchronize()
             timings.restore_s = time.perf_counter() - restore_start
+            timings.load_s = restore_result.load_s
+            timings.transfer_s = restore_result.transfer_s
+            timings.dequant_s = restore_result.dequant_s
+            restore_backend_used = restore_result.backend
         prefix = concatenate_caches(self.l0_cache, restored)
         if not hit:
             article_start = time.perf_counter()
@@ -458,28 +545,16 @@ class QualityModelRunner:
             article_cache = slice_cache(
                 full_prefix_cache, self.l0_tokens, self.l0_tokens + len(article_ids)
             )
-            physical_block_tokens = (
-                len(article_ids)
-                if cache.strategy in {"document", "radix"}
-                else block_tokens
-            )
-            store_start = time.perf_counter()
-            blocks = store_blocks(
-                article_cache,
-                storage,
-                max(1, physical_block_tokens),
-                accelerator_device=self.device,
-            )
-            self._synchronize()
-            timings.store_s = time.perf_counter() - store_start
-            policy_start = time.perf_counter()
-            cache.insert(
+            _, timings.store_s, insertion_policy_s = self._store_article_payload(
+                cache,
                 key,
                 article_ids,
-                StoredKV(len(article_ids), blocks=blocks),
-                timings.prefill_s,
+                article_cache,
+                storage=storage,
+                block_tokens=block_tokens,
+                prefill_cost_s=timings.prefill_s,
             )
-            timings.policy_s = time.perf_counter() - policy_start
+            timings.policy_s += insertion_policy_s
             prefix = full_prefix_cache
         score = self.score_suffix(suffix_ids, prefix, options=request.question.options)
         self._synchronize()
@@ -528,7 +603,10 @@ class QualityModelRunner:
             "document_tree_total_tokens": document_tree_total_tokens,
             "uncached_suffix_tokens": len(suffix_ids),
             "matched_prefix_tokens": matched,
-            "matched_cache_bytes": match.stored_bytes,
+            # Byte-hit rate measures useful requested KV bytes. Arena tail-page
+            # padding remains visible through stranded/cache byte metrics and
+            # must not make a hit ratio exceed one.
+            "matched_cache_bytes": match.useful_bytes,
             "article_tokens": len(article_ids),
             "article_bytes": self.estimate_article_bytes(
                 request, storage, block_tokens, cache_strategy
@@ -549,6 +627,8 @@ class QualityModelRunner:
             "reference_logit_atol": (
                 resolved_agreement_atol if validate_agreement else None
             ),
+            "int8_restore_backend_requested": int8_restore_backend,
+            "restore_backend_used": restore_backend_used,
             "prefill_cost_model": self.prefill_cost_model,
             "model_weights_loaded": True,
             **stats,

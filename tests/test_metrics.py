@@ -4,6 +4,57 @@ from src.quality_cache.reporting import summarize
 
 
 class MetricsTest(unittest.TestCase):
+    def test_arena_capacity_and_fragmentation_metrics_are_aggregated(self):
+        rows = [
+            {
+                "cache_hit": False,
+                "ttft_s": -1,
+                "arena_reserved_bytes": 4096,
+                "arena_free_bytes": 3072,
+                "arena_peak_allocated_bytes": 1024,
+                "arena_metadata_bytes": 128,
+                "arena_pages_total": 4,
+                "arena_pages_free": 3,
+                "arena_live_allocations": 1,
+                "arena_allocations": 1,
+                "arena_releases": 0,
+                "arena_stale_rejections": 0,
+                "arena_useful_bytes": 768,
+                "arena_stranded_bytes": 256,
+            },
+            {
+                "cache_hit": True,
+                "ttft_s": -1,
+                "arena_reserved_bytes": 4096,
+                "arena_free_bytes": 1024,
+                "arena_peak_allocated_bytes": 3072,
+                "arena_metadata_bytes": 192,
+                "arena_pages_total": 4,
+                "arena_pages_free": 1,
+                "arena_live_allocations": 3,
+                "arena_allocations": 4,
+                "arena_releases": 1,
+                "arena_stale_rejections": 2,
+                "arena_useful_bytes": 2500,
+                "arena_stranded_bytes": 572,
+            },
+        ]
+
+        summary = summarize(rows)
+
+        self.assertEqual(summary["arena_reserved_bytes_peak"], 4096)
+        self.assertEqual(summary["arena_free_bytes_min"], 1024)
+        self.assertEqual(summary["arena_peak_allocated_bytes"], 3072)
+        self.assertEqual(summary["arena_metadata_bytes_peak"], 192)
+        self.assertEqual(summary["arena_pages_total_peak"], 4)
+        self.assertEqual(summary["arena_pages_free_min"], 1)
+        self.assertEqual(summary["arena_live_allocations_peak"], 3)
+        self.assertEqual(summary["arena_allocations"], 4)
+        self.assertEqual(summary["arena_releases"], 1)
+        self.assertEqual(summary["arena_stale_rejections"], 2)
+        self.assertEqual(summary["arena_useful_bytes_peak"], 2500)
+        self.assertEqual(summary["arena_stranded_bytes_peak"], 572)
+
     def test_combined_restore_is_not_reported_as_an_isolated_stage(self):
         summary = summarize(
             [

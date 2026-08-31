@@ -132,6 +132,20 @@ def build_matrix_commands(
             "--output",
             str(output),
         ]
+        kv_backend = str(config.get("kv_backend", "tensor"))
+        if kv_backend != "tensor":
+            command.extend(("--kv-backend", kv_backend))
+        if config.get("arena_page_tokens") is not None:
+            command.extend(
+                ("--arena-page-tokens", str(config["arena_page_tokens"]))
+            )
+        int8_restore_backend = str(
+            config.get("int8_restore_backend", "pytorch")
+        )
+        if int8_restore_backend != "pytorch":
+            command.extend(
+                ("--int8-restore-backend", int8_restore_backend)
+            )
         limit = profile_config.get("limit")
         if limit is not None:
             command.extend(("--limit", str(limit)))
@@ -200,6 +214,39 @@ def _validate_selected_runs(config: dict) -> None:
             raise ValueError(
                 f"selected run {name!r} cannot validate agreement without inference"
             )
+        kv_backend = str(run.get("kv_backend", config.get("kv_backend", "tensor")))
+        if kv_backend == "arena":
+            if no_inference:
+                raise ValueError(
+                    f"selected run {name!r} cannot use arena without inference"
+                )
+            if run["policy"] == "none":
+                raise ValueError(
+                    f"selected run {name!r} cannot use arena without caching"
+                )
+            if run["cache_strategy"] != "document":
+                raise ValueError(
+                    f"selected run {name!r} arena requires document strategy"
+                )
+            if run["storage"] != "accelerator-fp16":
+                raise ValueError(
+                    f"selected run {name!r} arena requires accelerator-fp16"
+                )
+        restore_backend = str(
+            run.get(
+                "int8_restore_backend",
+                config.get("int8_restore_backend", "pytorch"),
+            )
+        )
+        if restore_backend != "pytorch":
+            if no_inference:
+                raise ValueError(
+                    f"selected run {name!r} cannot restore INT8 without inference"
+                )
+            if run["storage"] != "cpu-int8":
+                raise ValueError(
+                    f"selected run {name!r} restore backend requires cpu-int8"
+                )
     if len(names) != len(set(names)):
         raise ValueError("selected run names must be unique")
     positions = {name: index for index, name in enumerate(names)}
@@ -296,6 +343,24 @@ def _build_selected_commands(
                 str(block_setting),
             )
         )
+        kv_backend = str(run.get("kv_backend", config.get("kv_backend", "tensor")))
+        if kv_backend != "tensor":
+            command.extend(("--kv-backend", kv_backend))
+        arena_page_tokens = run.get(
+            "arena_page_tokens", config.get("arena_page_tokens")
+        )
+        if arena_page_tokens is not None:
+            command.extend(("--arena-page-tokens", str(arena_page_tokens)))
+        int8_restore_backend = str(
+            run.get(
+                "int8_restore_backend",
+                config.get("int8_restore_backend", "pytorch"),
+            )
+        )
+        if int8_restore_backend != "pytorch":
+            command.extend(
+                ("--int8-restore-backend", int8_restore_backend)
+            )
         if policy != "none":
             budget_percent = run.get(
                 "budget_percent", config.get("budget_percent")

@@ -117,7 +117,50 @@ remain in [`qwen_0.5b_confirmation.md`](qwen_0.5b_confirmation.md). Do not use a
 fixed 4 GiB budget when reproducing it; the experiment matches the 1.5B run's
 FP16 working-set fraction.
 
-## 5. Preserve results before the Colab runtime expires
+## 5. Run the arena and Triton phase
+
+The optional arena and Triton backends are now implemented. Pull the current
+commit, set allocator configuration before importing Torch, and verify Triton:
+
+```python
+%cd /content/rag-kvcache
+!git pull
+%env PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+%env TOKENIZERS_PARALLELISM=false
+!python -c "import torch, triton; print(torch.__version__, triton.__version__, torch.cuda.get_device_name())"
+!python -m unittest discover -s tests -q
+```
+
+First run the restore-only benchmark and ten-request matrix:
+
+```python
+!python experiments/run_quality.py benchmark-restore \
+    --model Qwen/Qwen2.5-1.5B-Instruct \
+    --device cuda --dtype float16 \
+    --tokens 512 2048 8192 \
+    --backends pytorch triton --warmup 2 --repeats 10 --seed 42 \
+    --output results/arena_triton/restore_microbenchmark.csv
+
+!python experiments/run_quality.py matrix \
+    configs/arena_triton_confirmation.json \
+    --profile smoke --execute --resume
+```
+
+Inspect the six smoke summaries and GPU logs. If all six finish, FP16 arena
+labels agree with the reference, and no allocation exceeds its budget, run the
+100-request confirmation:
+
+```python
+!python experiments/run_quality.py matrix \
+    configs/arena_triton_confirmation.json \
+    --profile confirmation --execute --resume
+```
+
+The detailed SGLang mapping, metric meanings, and interpretation rules are in
+[`arena_triton.md`](arena_triton.md). Do not use the smoke profile as timing
+evidence.
+
+## 6. Preserve results before the Colab runtime expires
 
 ```python
 from google.colab import files
@@ -125,7 +168,6 @@ from google.colab import files
 files.download("quality-colab-results.zip")
 ```
 
-The current repository contains the tensor-store implementation and the
-document, fixed-block, and radix logical cache strategies. The planned paged
-arena and Triton restore backend will use additional CLI flags once implemented;
-the commands above do not claim those backends are already available.
+The downloaded archive should now include `results/arena_triton` as well as any
+previous confirmations. Raw result archives remain intentionally excluded from
+Git.

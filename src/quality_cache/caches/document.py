@@ -13,10 +13,19 @@ class DocumentPrefixCache:
 
     strategy = "document"
 
-    def __init__(self, max_bytes: int, *, policy: str = "lru", max_articles=None, l0=None):
+    def __init__(
+        self,
+        max_bytes: int,
+        *,
+        policy: str = "lru",
+        max_articles=None,
+        l0=None,
+        arena=None,
+    ):
         self.cache = ArticleKVCache(
             max_bytes, policy=policy, max_articles=max_articles, l0=l0
         )
+        self.arena = arena
 
     @property
     def l0(self):
@@ -64,6 +73,13 @@ class DocumentPrefixCache:
             return False
         return True
 
+    def prepare_insert(self, key: CacheKey, incoming_bytes: int) -> bool:
+        try:
+            self.cache.prepare_for_put(key, incoming_bytes)
+        except BudgetTooSmall:
+            return False
+        return True
+
     def stats(self) -> dict[str, Any]:
         stats = self.cache.stats()
         stats.update(
@@ -77,9 +93,40 @@ class DocumentPrefixCache:
                 "cached_tokens": sum(
                     entry.token_count for entry in self.cache.entries.values()
                 ),
-                "useful_bytes": self.current_bytes,
+                "useful_bytes": sum(
+                    entry.useful_bytes for entry in self.cache.entries.values()
+                ),
                 "shared_bytes": 0,
-                "stranded_bytes": 0,
+                "stranded_bytes": sum(
+                    entry.stranded_bytes for entry in self.cache.entries.values()
+                ),
             }
         )
+        if self.arena is not None:
+            arena_stats = self.arena.stats()
+            stats.update(arena_stats)
+            stats["metadata_bytes"] += int(arena_stats["arena_metadata_bytes"])
+            stats["cache_footprint_bytes"] = (
+                int(arena_stats["arena_reserved_bytes"])
+                + stats["metadata_bytes"]
+            )
+        else:
+            stats.update(
+                {
+                    "kv_backend": "tensor",
+                    "arena_page_tokens": 0,
+                    "arena_pages_total": 0,
+                    "arena_pages_free": 0,
+                    "arena_live_allocations": 0,
+                    "arena_reserved_bytes": 0,
+                    "arena_free_bytes": 0,
+                    "arena_peak_allocated_bytes": 0,
+                    "arena_metadata_bytes": 0,
+                    "arena_allocations": 0,
+                    "arena_releases": 0,
+                    "arena_stale_rejections": 0,
+                    "arena_useful_bytes": 0,
+                    "arena_stranded_bytes": 0,
+                }
+            )
         return stats

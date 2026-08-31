@@ -115,30 +115,30 @@ criteria and supports scale robustness within the Qwen2.5 family. Protocol,
 tables, caveats, and provenance are frozen in
 [`qwen_0.5b_results.md`](qwen_0.5b_results.md).
 
-## Remaining implementation: KV arena and Triton restore
+## Implemented next phase: KV arena and Triton restore
 
-The strongest additional systems contribution is a small document-owned arena
-plus a fused INT8 restore kernel:
+The code now contains the document-owned arena, generation-checked allocation
+handles, deterministic pages, useful/reserved/stranded accounting, and the
+optional fused CUDA INT8 restore kernel. Restore transfer, dequantization, final
+assembly, and combined wall time are measured separately. CPU/MPS and systems
+without Triton retain the PyTorch path; explicitly requesting Triton fails
+clearly when it is unavailable.
 
-1. Preallocate per-layer K/V slabs and return allocation handles rather than
-   independent Python tensor objects.
-2. Track a free list, document ownership, generation counters, live bytes,
-   metadata bytes, and stranded bytes.
-3. Preserve the current cache-policy interface so document, fixed-block, and
-   radix organizations can use either the existing tensor backend or the arena.
-4. Implement a Triton kernel that reads INT8 K/V and per-layer/per-KV-head
-   scales, dequantizes to FP16, and writes directly into the accelerator arena.
-5. Time quantization lookup, host-to-device movement, kernel execution, and
-   cache reconstruction separately. Schema v3 reports the current combined
-   PyTorch path only as `restore_mean_s`; its isolated `dequant_mean_s` and
-   `transfer_mean_s` fields remain zero until those stages are instrumented.
-6. Microbenchmark PyTorch versus Triton by restored tokens and bytes, then
-   rerun only segmented, document FP16, and document INT8 end-to-end paths.
+The arena is deliberately limited to atomic document + accelerator FP16. The
+Triton kernel targets transient model-ready tensors restored from CPU INT8.
+Making INT8 restoration persistently populate an FP16 arena would duplicate the
+cache and invalidate the memory-capacity comparison. The architectural mapping
+to SGLang, flags, invariants, and exact CUDA commands are in
+[`arena_triton.md`](arena_triton.md).
 
-Required checks include exact byte bounds, stale-handle rejection after
-eviction, no use-after-free, deterministic allocation traces, identical FP16
-labels, recorded INT8 score error, and a CPU/PyTorch fallback when Triton or
-CUDA is unavailable.
+The remaining work is empirical rather than another refactor:
+
+1. Run the PyTorch/Triton restore microbenchmark at 512, 2,048, and 8,192
+   tokens.
+2. Run the ten-request six-path smoke matrix and inspect memory plus agreement.
+3. Run the aligned 100-request confirmation only after smoke passes.
+4. Add the resulting arena fragmentation, restore throughput, TTFT, and label
+   tables to the report without replacing the frozen baseline.
 
 ## Final report sequence
 
@@ -152,5 +152,5 @@ CUDA is unavailable.
 5. Present INT8 as a memory/latency/accuracy frontier, including both changed
    questions and the restore-timer limitation.
 6. Report the three-run timing medians and ranges.
-7. Add the second-model check and arena/Triton microbenchmark if completed;
-   otherwise list them explicitly as future work.
+7. Add the completed second-model check and, after CUDA execution, the
+   arena/Triton microbenchmark as separately versioned evidence.

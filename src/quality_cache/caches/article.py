@@ -4,7 +4,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..inference.tensors import KVBlock
+from ..inference.tensors import KVBlock, release_blocks
 
 
 POLICIES = ("lru", "lfu", "fifo", "gdsf")
@@ -26,7 +26,7 @@ class CacheEntry:
     key: CacheKey
     token_count: int
     prefill_cost_s: float
-    blocks: list[KVBlock] = field(default_factory=list)
+    blocks: list[Any] = field(default_factory=list)
     simulated_bytes: int | None = None
     frequency: int = 1
     inserted_at: int = 0
@@ -38,6 +38,19 @@ class CacheEntry:
         if self.simulated_bytes is not None:
             return int(self.simulated_bytes)
         return sum(block.stored_bytes for block in self.blocks)
+
+    @property
+    def useful_bytes(self) -> int:
+        if self.simulated_bytes is not None:
+            return int(self.simulated_bytes)
+        return sum(
+            int(getattr(block, "useful_bytes", block.stored_bytes))
+            for block in self.blocks
+        )
+
+    @property
+    def stranded_bytes(self) -> int:
+        return self.stored_bytes - self.useful_bytes
 
 
 class BudgetTooSmall(ValueError):
@@ -100,6 +113,7 @@ class ArticleKVCache:
         old = self.entries.pop(entry.key, None)
         if old is not None:
             self.current_bytes -= old.stored_bytes
+            release_blocks(old.blocks)
         entry.inserted_at = self.clock
         entry.last_access = self.clock
         entry.frequency = max(1, entry.frequency)
@@ -114,6 +128,33 @@ class ArticleKVCache:
         self.entries[entry.key] = entry
         self.current_bytes += size
         self.insertions += 1
+        self._invalidate_stats()
+        self._assert_budget()
+        return evicted
+
+    def prepare_for_put(self, key: CacheKey, incoming_bytes: int) -> list[CacheKey]:
+        """Reserve logical capacity before a fixed-size arena allocation.
+
+        Object-backed storage can temporarily materialize an incoming tensor
+        before policy insertion. A fixed-capacity arena cannot, so document
+        mode evicts first and then fills the pages made available here.
+        """
+        if incoming_bytes > self.max_bytes:
+            raise BudgetTooSmall(
+                f"article requires {incoming_bytes} bytes but cache budget is "
+                f"{self.max_bytes}"
+            )
+        old = self.entries.pop(key, None)
+        if old is not None:
+            self.current_bytes -= old.stored_bytes
+            release_blocks(old.blocks)
+        evicted: list[CacheKey] = []
+        while self._would_exceed(incoming_bytes):
+            victim = self._victim()
+            if victim is None:
+                raise RuntimeError("cache could not reserve an arena allocation")
+            evicted.append(victim.key)
+            self._remove(victim)
         self._invalidate_stats()
         self._assert_budget()
         return evicted
@@ -149,7 +190,7 @@ class ArticleKVCache:
             self.gdsf_clock = entry.priority
         removed = self.entries.pop(entry.key)
         self.current_bytes -= removed.stored_bytes
-        removed.blocks.clear()  # make evicted tensors unreachable through the entry
+        release_blocks(removed.blocks)
         self.evictions += 1
         self._invalidate_stats()
 

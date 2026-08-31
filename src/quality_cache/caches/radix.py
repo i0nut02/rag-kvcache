@@ -211,7 +211,7 @@ class RadixPrefixCache:
         if self.policy == "gdsf":
             self.gdsf_clock = victim.priority
         self._unregister_node(victim)
-        victim.payload.blocks.clear()
+        victim.payload.release()
         self.evictions += 1
         if parent.node_id and not parent.children:
             self._schedule_leaf(parent)

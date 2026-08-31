@@ -12,8 +12,10 @@ except ImportError:
     torch = None
 
 from src.quality_cache.inference.tensors import (
+    resolve_int8_restore_backend,
     resolve_storage_device,
     restore_blocks,
+    restore_blocks_profiled,
     slice_stored_blocks,
     store_blocks,
     to_legacy,
@@ -53,6 +55,24 @@ class TensorStorageTest(unittest.TestCase):
             for original, value in zip(original_layer, restored_layer):
                 error = (original - value).abs().max().item()
                 self.assertLess(error, 0.04)
+
+    def test_profiled_int8_restore_uses_cpu_pytorch_fallback(self):
+        blocks = store_blocks(self.cache, "cpu-int8", 4)
+        result = restore_blocks_profiled(
+            blocks,
+            dtype=torch.float16,
+            device="cpu",
+            int8_backend="auto",
+        )
+        self.assertEqual(result.backend, "pytorch")
+        self.assertEqual(result.transfer_s, 0.0)
+        self.assertGreaterEqual(result.dequant_s, 0.0)
+        self.assertGreaterEqual(result.load_s, 0.0)
+        self.assertEqual(result.cache[0][0].device.type, "cpu")
+
+    def test_explicit_triton_restore_rejects_cpu(self):
+        with self.assertRaisesRegex(ValueError, "requires CUDA"):
+            resolve_int8_restore_backend("triton", "cpu")
 
     def test_stored_block_slice_spans_physical_boundaries(self):
         blocks = store_blocks(self.cache, "cpu-fp16", 4)
@@ -111,6 +131,34 @@ class TensorStorageTest(unittest.TestCase):
         )
         restored = restore_blocks(blocks, dtype=torch.float16, device="cuda")
         self.assertEqual(restored[0][0].device.type, "cuda")
+
+    @unittest.skipUnless(torch is not None and torch.cuda.is_available(), "CUDA unavailable")
+    def test_cuda_triton_restore_matches_pytorch_when_available(self):
+        from src.quality_cache.inference.triton_restore import (
+            triton_restore_available,
+        )
+
+        if not triton_restore_available("cuda"):
+            self.skipTest("Triton restore unavailable")
+        blocks = store_blocks(self.cache, "cpu-int8", 9)
+        pytorch_result = restore_blocks_profiled(
+            blocks,
+            dtype=torch.float16,
+            device="cuda",
+            int8_backend="pytorch",
+        )
+        triton_result = restore_blocks_profiled(
+            blocks,
+            dtype=torch.float16,
+            device="cuda",
+            int8_backend="triton",
+        )
+        self.assertEqual(triton_result.backend, "triton")
+        for expected_layer, actual_layer in zip(
+            pytorch_result.cache, triton_result.cache
+        ):
+            for expected, actual in zip(expected_layer, actual_layer):
+                torch.testing.assert_close(expected, actual, rtol=0, atol=0)
 
 
 if __name__ == "__main__":

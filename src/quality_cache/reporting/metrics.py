@@ -142,6 +142,46 @@ def summarize(rows: Iterable[dict[str, Any]], *, cold_requests: int = 0) -> dict
         "useful_bytes_peak": max((int(row.get("useful_bytes", 0)) for row in rows), default=0),
         "shared_bytes_peak": max((int(row.get("shared_bytes", 0)) for row in rows), default=0),
         "stranded_bytes_peak": max((int(row.get("stranded_bytes", 0)) for row in rows), default=0),
+        # Arena reservation is deliberately separate from live cache bytes:
+        # the slabs are allocated once, while useful/stranded bytes describe
+        # the document allocations that currently occupy those slabs.
+        "arena_reserved_bytes_peak": max(
+            (int(row.get("arena_reserved_bytes", 0)) for row in rows), default=0
+        ),
+        "arena_free_bytes_min": min(
+            (int(row.get("arena_free_bytes", 0)) for row in rows), default=0
+        ),
+        "arena_peak_allocated_bytes": max(
+            (int(row.get("arena_peak_allocated_bytes", 0)) for row in rows),
+            default=0,
+        ),
+        "arena_metadata_bytes_peak": max(
+            (int(row.get("arena_metadata_bytes", 0)) for row in rows), default=0
+        ),
+        "arena_pages_total_peak": max(
+            (int(row.get("arena_pages_total", 0)) for row in rows), default=0
+        ),
+        "arena_pages_free_min": min(
+            (int(row.get("arena_pages_free", 0)) for row in rows), default=0
+        ),
+        "arena_live_allocations_peak": max(
+            (int(row.get("arena_live_allocations", 0)) for row in rows), default=0
+        ),
+        "arena_allocations": max(
+            (int(row.get("arena_allocations", 0)) for row in rows), default=0
+        ),
+        "arena_releases": max(
+            (int(row.get("arena_releases", 0)) for row in rows), default=0
+        ),
+        "arena_stale_rejections": max(
+            (int(row.get("arena_stale_rejections", 0)) for row in rows), default=0
+        ),
+        "arena_useful_bytes_peak": max(
+            (int(row.get("arena_useful_bytes", 0)) for row in rows), default=0
+        ),
+        "arena_stranded_bytes_peak": max(
+            (int(row.get("arena_stranded_bytes", 0)) for row in rows), default=0
+        ),
         "metadata_bytes_peak": max(
             (int(row.get("metadata_bytes", 0)) for row in rows), default=0
         ),

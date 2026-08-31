@@ -213,13 +213,15 @@ decision boundary. Therefore `119 tolerance violations` does not mean 119
 wrong answers; it does show that INT8 is numerically lossy on almost every
 restored hit.
 
-`dequant_mean_s = 0.039786` is averaged over all 300 requests, including
+In the frozen 300-request archive, `dequant_mean_s = 0.039786` is averaged over all 300 requests, including
 misses. The total timed restore work divided by 122 hits is about 97.8 ms per
-restore. In the current implementation this timer includes CPU dequantization,
+restore. In that archived implementation this timer includes CPU dequantization,
 host-to-device copy, dtype conversion, and cache reconstruction. Consequently,
 `transfer_mean_s = 0` is an instrumentation convention, not evidence that no
 transfer occurred. Separating and accelerating this path is the motivation for
-the arena/Triton extension.
+the now-implemented arena/Triton extension. New backend rows use separately
+instrumented transfer, device dequantization, assembly, and combined restore
+timers and must not be merged silently with the archive.
 
 ## Run-to-run timing stability
 
@@ -279,8 +281,9 @@ hashes are in [`qwen_0.5b_results.md`](qwen_0.5b_results.md).
 - The original request-level bootstrap intervals capture within-trace request
   variation; the three-run ranges capture a small amount of system variation.
   Neither is a multi-GPU confidence interval.
-- CPU INT8 restore phases are not separately instrumented yet, and the current
-  cache backend stores Python-owned tensors rather than a preallocated arena.
+- The frozen INT8 results predate separate restore-stage instrumentation, and
+  the arena/Triton implementation has not yet been measured on CUDA. No speed
+  claim for either new backend is made in this document.
 - The calibrated no-inference prefill model is not observed TTFT and cannot be
   used as if it were a CUDA timing result.
 
@@ -290,10 +293,9 @@ The empirical 1.5B baseline and matched-working-set 0.5B scale check are now
 sufficient for the course report. Remaining experiments should be narrow
 rather than another full cross-product:
 
-1. implement the document-owned KV arena and a fused Triton INT8
-   restore/dequantization kernel;
-2. microbenchmark PyTorch versus Triton restore by tokens and bytes, then rerun
-   only segmented, document FP16, and document INT8 end-to-end paths;
+1. microbenchmark the implemented PyTorch and Triton restore paths by tokens
+   and bytes;
+2. rerun only segmented, document FP16, and document INT8 end-to-end paths;
 3. update the final figures with three-run timing summaries and present INT8 as
    a Pareto tradeoff rather than a lossless optimization.
 

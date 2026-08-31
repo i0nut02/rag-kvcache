@@ -245,6 +245,67 @@ class ExperimentConfigTest(unittest.TestCase):
             all(command[command.index("--limit") + 1] == "100" for command in commands)
         )
 
+    def test_selected_matrix_forwards_arena_and_restore_backends(self):
+        root = Path(__file__).resolve().parents[1]
+        config = {
+            "dataset": str(
+                root
+                / "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.dev"
+            ),
+            "split": "dev",
+            "model": "Qwen/Qwen2.5-0.5B-Instruct",
+            "profiles": {"smoke": {"limit": 10}},
+            "runs": [
+                {
+                    "name": "arena",
+                    "workload": "random",
+                    "policy": "lru",
+                    "storage": "accelerator-fp16",
+                    "cache_strategy": "document",
+                    "budget_mb": 128,
+                    "kv_backend": "arena",
+                    "arena_page_tokens": 64,
+                },
+                {
+                    "name": "int8",
+                    "workload": "random",
+                    "policy": "lru",
+                    "storage": "cpu-int8",
+                    "cache_strategy": "document",
+                    "budget_mb": 128,
+                    "int8_restore_backend": "auto",
+                },
+            ],
+        }
+        commands = build_matrix_commands(config, "smoke", root / "results" / "new")
+        self.assertIn("--kv-backend", commands[0])
+        self.assertEqual(
+            commands[0][commands[0].index("--kv-backend") + 1], "arena"
+        )
+        self.assertEqual(
+            commands[0][commands[0].index("--arena-page-tokens") + 1], "64"
+        )
+        self.assertEqual(
+            commands[1][commands[1].index("--int8-restore-backend") + 1],
+            "auto",
+        )
+
+    def test_arena_triton_confirmation_has_one_reference_and_five_comparisons(self):
+        root = Path(__file__).resolve().parents[1]
+        config = load_matrix(root / "configs" / "arena_triton_confirmation.json")
+        commands = build_matrix_commands(
+            config, "confirmation", root / "results" / "arena-triton"
+        )
+        self.assertEqual(len(commands), 6)
+        self.assertTrue(
+            all(command[command.index("--limit") + 1] == "100" for command in commands)
+        )
+        self.assertEqual(sum("--kv-backend" in command for command in commands), 2)
+        self.assertEqual(
+            sum("--int8-restore-backend" in command for command in commands), 1
+        )
+        self.assertEqual(sum("--reference-jsonl" in command for command in commands), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

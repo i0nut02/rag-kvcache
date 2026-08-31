@@ -104,7 +104,16 @@ class NoInferenceRunner:
         *,
         strategy: str = "document",
         block_tokens: int = 16,
+        storage: str = "accelerator-fp16",
+        kv_backend: str = "tensor",
+        arena_page_tokens: int = 256,
     ):
+        del storage, arena_page_tokens
+        if kv_backend != "tensor":
+            raise ValueError(
+                "the arena backend stores real KV tensors and is unavailable "
+                "with --no-inference"
+            )
         return new_prefix_cache(
             strategy,
             budget_bytes,
@@ -136,8 +145,9 @@ class NoInferenceRunner:
         cache_strategy: str = "document",
         validate_agreement: bool = False,
         agreement_atol: float | None = None,
+        int8_restore_backend: str = "pytorch",
     ) -> dict[str, Any]:
-        del agreement_atol
+        del agreement_atol, int8_restore_backend
         if validate_agreement:
             raise ValueError("--validate-agreement requires inference")
         article_ids = self._article_ids(request)
@@ -203,7 +213,7 @@ class NoInferenceRunner:
             "document_tree_total_tokens": document_tree_total_tokens,
             "uncached_suffix_tokens": suffix_tokens,
             "matched_prefix_tokens": matched,
-            "matched_cache_bytes": match.stored_bytes,
+            "matched_cache_bytes": match.useful_bytes,
             "article_tokens": len(article_ids),
             "article_bytes": article_bytes,
             "matched_prefill_tokens": matched,
