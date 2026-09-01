@@ -183,5 +183,7 @@ CPU INT8 changes one of 100 labels in this initial sample.
 
 The targeted follow-ups are now complete. The 256-token fixed-block run, the
 300-request INT8 comparison, and three-run timing aggregate are reported in
-[`results.md`](results.md). See [`next_steps.md`](next_steps.md) for the
-remaining second-model and arena/Triton work.
+[`results.md`](results.md). The matched-working-set second-model check and the
+corrected arena/Triton phase are also complete; see
+[`qwen_0.5b_results.md`](qwen_0.5b_results.md),
+[`arena_triton.md`](arena_triton.md), and [`next_steps.md`](next_steps.md).

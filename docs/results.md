@@ -1,11 +1,13 @@
 # Consolidated experimental results
 
-Status: 31 August 2026. This is the report-ready interpretation of the
+Status: 1 September 2026. This is the report-ready interpretation of the
 completed QuALITY trace, inference, block-size, INT8, and timing-repetition
 experiments. Detailed source tables and figures for the first confirmation are
 in [`generated/inference_confirmation`](generated/inference_confirmation/results.md).
 The matched-working-set Qwen2.5-0.5B scale confirmation is reported separately
-in [`qwen_0.5b_results.md`](qwen_0.5b_results.md).
+in [`qwen_0.5b_results.md`](qwen_0.5b_results.md). Final allocator and Triton
+evidence is frozen in
+[`generated/arena_triton`](generated/arena_triton/README.md).
 
 ## Executive result
 
@@ -28,6 +30,14 @@ mean TTFT by 36.3% relative to segmented FP16. It agrees on 298/300 labels
 (`99.33%`) but changes two answers that FP16 got right. It is therefore a
 measured memory/latency/quality tradeoff, not a lossless mode.
 
+The optional systems follow-up reaches a more nuanced conclusion. A document-
+owned page arena enforces deterministic lifetime and byte accounting but is
+9--12% slower than ordinary tensor storage because Transformers still
+reassembles a contiguous cache. The corrected Triton INT8 kernel reduces hit-
+only restore time by 17.3% and dequantization by 73.4%, but host transfer
+dominates and a 2.671-second one-time JIT warm-up requires a long-lived server
+to amortize.
+
 ## Research questions and answers
 
 | Question | Answer from the current evidence |
@@ -38,6 +48,8 @@ measured memory/latency/quality tradeoff, not a lossless mode.
 | Is INT8 accuracy-neutral? | No strict lossless claim is justified: 2/300 labels changed and accuracy fell by 0.67 percentage points. |
 | Does document-aware caching beat generic prefix structures? | Yes as a systems tradeoff: it gives the best measured TTFT with tiny metadata while retaining nearly the same useful tokens. |
 | Is offline precomputation amortized? | Not yet answered experimentally. Calibrated prefill estimates are available, but no measured online-versus-offline prefill comparison should be claimed. |
+| Does a preallocated page arena improve this Transformers path? | No. It strengthens ownership and fragmentation accounting, but transient contiguous reconstruction makes it slower than tensor storage. |
+| Does Triton improve CPU-INT8 restore? | Yes on the hit path: restore is 1.209x faster and dequantization 3.754x faster. Startup-amortized TTFT is not a win at only 100 requests. |
 
 ## Experimental layers
 
@@ -51,6 +63,8 @@ The project uses two separate dataset roles and does not mix their metrics:
 | INT8 accuracy follow-up | Dev | 2 aligned runs x 300 | Larger FP16-versus-INT8 agreement and accuracy check |
 | Timing repetitions | Dev | 8 new runs x 100 | Repetitions 2 and 3 for segmented/document paths on random and Zipf traces |
 | Qwen2.5-0.5B scale confirmation | Dev | 6 aligned runs x 100 | Matched-working-set check of the decisive random and Zipf comparisons |
+| Arena/Triton confirmation | Dev | 6 aligned runs x 100 | Tensor versus page-arena FP16 and PyTorch versus Triton CPU-INT8 restore |
+| Corrected restore microbenchmark | Synthetic model geometry | 2 repetitions x 6 rows | Isolate transfer, dequantization, restore throughput, and numerical parity at 512/2,048/8,192 tokens |
 
 All synthetic traces use seed 42. `grouped` keeps questions for one article
 consecutive, `random` shuffles all real questions, and `zipf` samples article
@@ -90,6 +104,31 @@ interval and reports combined `restore_s` plus a separate `store_s`. It does
 not relabel combined restore time as isolated transfer or dequantization time.
 Do not merge request-level or summary rows across the two schemas; the
 numerical claims on this page remain the historical v2 baseline.
+
+The final arena/Triton archive is entirely `quality-kv-v3`. Its six 100-request
+JSONLs have aligned trace positions and a common segmented reference. The
+analyzer verified the dataset, model, code, and hardware provenance; exact
+input hashes are stored in
+[`analysis.json`](generated/arena_triton/analysis.json). The two corrected
+microbenchmark repetitions have complete Tesla-T4/CUDA/Triton manifests and
+exact PyTorch output parity. Raw JSONLs remain outside Git; only the curated
+tables, figures, hashes, and manifests are checked in.
+
+To audit the final systems phase, use this order:
+
+| Check | Curated artifact |
+|---|---|
+| Machine, dataset, model, schema, and raw-input provenance | [`generated/arena_triton/README.md`](generated/arena_triton/README.md) and [`analysis.json`](generated/arena_triton/analysis.json) |
+| Per-path TTFT, hit rate, allocator, and timer aggregates | [`run_summaries.csv`](generated/arena_triton/run_summaries.csv) |
+| Paired speedups and bootstrap intervals | [`fair_speedups.csv`](generated/arena_triton/fair_speedups.csv) |
+| FP16/INT8 answer agreement | [`correctness.csv`](generated/arena_triton/correctness.csv) and [`mismatch_details.json`](generated/arena_triton/mismatch_details.json) |
+| Matched PyTorch/Triton hit path and startup amortization | [`triton_comparison.csv`](generated/arena_triton/triton_comparison.csv) |
+| Corrected isolated restore repetitions | [`restore_microbenchmark_runtime_stride.csv`](generated/arena_triton/restore_microbenchmark_runtime_stride.csv) and [`restore_microbenchmark_rep1.csv`](generated/arena_triton/restore_microbenchmark_rep1.csv) |
+
+The human-readable synthesis is [`arena_triton.md`](arena_triton.md). The
+generated summary in
+[`generated/arena_triton/results.md`](generated/arena_triton/results.md) is
+kept unedited so it can be regenerated directly from the ignored raw JSONLs.
 
 ## Metric conventions
 
@@ -268,22 +307,28 @@ hashes are in [`qwen_0.5b_results.md`](qwen_0.5b_results.md).
 
 ## Arena and Triton systems follow-up
 
-The aligned 100-request arena experiment is complete. Against a 1.911-second
+The aligned 100-request arena experiment is complete. Against a 1.941-second
 segmented control, tensor FP16, arena-64, and arena-256 have mean TTFTs of
-1.612, 1.701, and 1.665 seconds. Both arena modes preserve every FP16 label and
+1.544, 1.723, and 1.687 seconds. Both arena modes preserve every FP16 label and
 all allocation invariants, but neither beats tensor storage because the current
 Transformers attention path still reconstructs contiguous caches. Arena-64
 uses less tail padding and retains the 20.31% tensor hit rate; arena-256 reduces
 page-operation overhead but its 114.35 MiB peak tail waste lowers hit rate to
 18.19%.
 
-The pre-fix restore microbenchmark shows a 1.133x--1.166x Triton restore
-speedup with exact synthetic output parity. Because the runtime-stride change
-alters the compiled kernel, that short benchmark also requires a targeted
-rerun. The first end-to-end Triton row is not final evidence: a
-token-length-dependent `tl.constexpr` caused repeated JIT compilation. The fix
-and the two remaining targeted commands are documented in
-[`arena_triton.md`](arena_triton.md).
+The corrected restore microbenchmark gives 1.137x, 1.167x, and 1.243x Triton
+restore speedups at 512, 2,048, and 8,192 tokens, with exact output parity. On
+the 31 matched cache hits, Triton reduces mean dequantization from 8.06 to 2.15
+ms and complete restore from 37.45 to 30.98 ms. The PyTorch and Triton INT8
+paths produce identical A/B/C/D scores and the same one FP16 label mismatch.
+
+Online Triton mean TTFT is 1.418 seconds versus 1.438 for PyTorch, but this
+small all-request difference also contains run-to-run miss/store variation.
+The isolated claim is therefore the hit restore improvement. The separately
+reported 2.671-second JIT warm-up makes Triton about 0.49% slower when
+amortized over only 100 requests; the observed hit-restore saving breaks even
+after roughly 1,332 requests at a 31% hit rate. Full tables, hashes, and
+interpretation are in [`arena_triton.md`](arena_triton.md).
 
 ## Validity limits
 
@@ -300,25 +345,28 @@ and the two remaining targeted commands are documented in
 - The original request-level bootstrap intervals capture within-trace request
   variation; the three-run ranges capture a small amount of system variation.
   Neither is a multi-GPU confidence interval.
-- The frozen INT8 results predate separate restore-stage instrumentation. The
-  newer synthetic CUDA restore run is kernel-path evidence; its first matched
-  end-to-end Triton row exposed repeated JIT specialization and is explicitly
-  excluded from final TTFT claims until the corrected row is rerun.
+- The frozen 300-request INT8 result predates separate restore-stage
+  instrumentation. The final 100-request v3 comparison supplies kernel-path
+  timing but is smaller and does not replace that accuracy result.
+- Triton startup is reported separately from online TTFT. The all-request
+  PyTorch/Triton difference cannot be assigned entirely to the kernel because
+  independent runs also differed in miss/store time.
 - The calibrated no-inference prefill model is not observed TTFT and cannot be
   used as if it were a CUDA timing result.
 
-## Remaining work
+## Experimental status and optional future work
 
-The empirical 1.5B baseline and matched-working-set 0.5B scale check are now
-sufficient for the course report. Remaining experiments should be narrow
-rather than another full cross-product:
+The planned 1.5B baseline, matched-working-set 0.5B check, page-arena study,
+and corrected Triton comparison are complete. No additional experiment is
+required before writing the course report. The original length-specialized
+Triton trace remains diagnostic evidence and is not mixed into final tables.
 
-1. push the runtime-stride/JIT-warm-up correction;
-2. rerun only the short restore benchmark and 100-request Triton path;
-3. freeze the arena/Triton analysis artifacts while preserving the original
-   length-specialized row as diagnostic evidence.
-
-The concrete sequence is maintained in [`next_steps.md`](next_steps.md).
+Optional extensions are pinned/asynchronous CPU transfer with stream-safe
+lifetime management, page-table-aware attention that consumes arena locations
+without contiguous reconstruction, and replication on another GPU or model
+family. These are new research phases, not missing validation for the current
+claims. The finished-versus-optional boundary is maintained in
+[`next_steps.md`](next_steps.md).
 
 ## Follow-up archive provenance
 

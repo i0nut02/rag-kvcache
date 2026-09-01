@@ -45,7 +45,7 @@ The Qwen2.5-1.5B empirical baseline is frozen. Before changing experimental
 claims, read:
 
 - `docs/results.md` for consolidated findings and limitations;
-- `docs/next_steps.md` for completed work and the remaining plan;
+- `docs/next_steps.md` for completed work and optional future extensions;
 - `docs/inference_confirmation.md` for fair-baseline execution;
 - `docs/no_inference_results.md` for the complete trace matrix.
 
@@ -60,10 +60,10 @@ Current supported choices are:
 
 Do not report smoke runs as timing evidence. Do not replace the frozen 1.5B
 numbers with a single new run. The matched-working-set Qwen2.5-0.5B
-confirmation and the KV-arena comparison are complete. The first end-to-end
-Triton row exposed token-length-dependent JIT specialization and is diagnostic
-only; the remaining experiment is the corrected, prewarmed Triton INT8 restore
-rerun described in `docs/arena_triton.md`.
+confirmation, KV-arena comparison, and corrected prewarmed Triton INT8 restore
+comparison are complete. The first length-specialized Triton row is diagnostic
+only; final claims use the runtime-stride evidence in `docs/arena_triton.md`
+and `docs/generated/arena_triton/` and report JIT warm-up separately.
 
 ## Repository map
 

@@ -1,0 +1,6 @@
+accuracy_delta_vs_segmented,agreement_vs_segmented,cached_accuracy,cached_hard_accuracy,hard_accuracy_delta_vs_segmented,label,label_mismatches,max_label_logit_delta_vs_segmented,mean_max_label_logit_delta_vs_segmented,run,segmented_accuracy,segmented_hard_accuracy,storage,unique_label_mismatches,workload
+0.0,1.0,0.51,0.35714285714285715,0.0,Document tensor FP16,0,0.0,0.0,document_tensor_random_fp16_4gib,0.51,0.35714285714285715,accelerator-fp16,0,random
+0.0,1.0,0.51,0.35714285714285715,0.0,Document arena-64 FP16,0,0.0,0.0,document_arena64_random_fp16_4gib,0.51,0.35714285714285715,accelerator-fp16,0,random
+0.0,1.0,0.51,0.35714285714285715,0.0,Document arena-256 FP16,0,0.0,0.0,document_arena256_random_fp16_4gib,0.51,0.35714285714285715,accelerator-fp16,0,random
+-0.010000000000000009,0.99,0.5,0.3392857142857143,-0.01785714285714285,"Document CPU INT8, PyTorch restore",1,0.828125,0.085625,document_pytorch_random_int8_4gib,0.51,0.35714285714285715,cpu-int8,1,random
+-0.010000000000000009,0.99,0.5,0.3392857142857143,-0.01785714285714285,"Document CPU INT8, Triton restore",1,0.828125,0.085625,document_triton_random_int8_4gib,0.51,0.35714285714285715,cpu-int8,1,random

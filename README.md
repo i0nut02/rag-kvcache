@@ -67,9 +67,10 @@ preallocated page-backed slab with generation-checked document handles and
 explicit stranded-byte accounting. CPU INT8 can use
 `--int8-restore-backend triton` on CUDA to transfer compact values/scales and
 fuse dequantization with the final FP16/BF16 cast; `auto` falls back to PyTorch
-when Triton is unavailable. These are new experimental backends and do not
-alter the frozen baseline results. Their SGLang-inspired design and matched
-runbook are in [docs/arena_triton.md](docs/arena_triton.md).
+when Triton is unavailable. These optional systems backends do not alter the
+frozen baseline results. Their SGLang-inspired design, completed matched
+comparison, and reproduction runbook are in
+[docs/arena_triton.md](docs/arena_triton.md).
 
 The model scores the next-token probability of A/B/C/D. If any label is not a
 single token, it falls back to full option-sequence likelihood.
@@ -104,7 +105,11 @@ For a CUDA runtime on Google Colab, follow the copy-paste setup and smoke-test
 commands in [docs/colab.md](docs/colab.md). Dataset files, model weights, and
 generated results are downloaded inside Colab and remain excluded from Git. Use
 `requirements-colab.txt` there; the fully pinned `requirements.txt` is intended
-for a clean virtual environment, not Colab's managed Python installation.
+for a clean virtual environment, not Colab's managed Python installation. The
+checkpointed all-2,086-question workflow is available directly as
+[`notebooks/full_dev_confirmation_colab.ipynb`](notebooks/full_dev_confirmation_colab.ipynb)
+or through
+[Open in Colab](https://colab.research.google.com/github/i0nut02/rag-kvcache/blob/main/notebooks/full_dev_confirmation_colab.ipynb).
 
 `run` performs real inference by default. Add `--no-inference` to load only the
 tokenizer and model configuration, calculate the exact 1.5B KV geometry, and
@@ -264,10 +269,12 @@ the staged Qwen2.5-0.5B scale-confirmation commands are in
 results are in [`docs/qwen_0.5b_results.md`](docs/qwen_0.5b_results.md). The
 implemented arena/Triton phase and commands are in
 [`docs/arena_triton.md`](docs/arena_triton.md). Its restore-only CUDA
-microbenchmark and matched arena measurements are complete. Its first
-end-to-end Triton row found a length-specialization/JIT issue; the correction
-is implemented and requires one targeted Triton rerun. The bounded architecture
-review and refactor rationale are in
+microbenchmark, matched arena measurements, and corrected end-to-end Triton
+comparison are complete. The first Triton row found a length-specialization/JIT
+issue; it is retained only as diagnostic history, while the final runtime-
+stride result and curated evidence are in
+[`docs/generated/arena_triton`](docs/generated/arena_triton/README.md). The
+bounded architecture review and refactor rationale are in
 [`docs/code_quality.md`](docs/code_quality.md).
 
 Every result receives a neighboring manifest containing the result schema and dataset checksum,

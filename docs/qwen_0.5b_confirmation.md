@@ -149,9 +149,11 @@ The FP16 exit criteria are:
 - report the random and Zipf cache-only speedup and article-token hit rate;
 - treat a smoke result as functional evidence only.
 
-Do not run the optional CPU INT8 follow-up until these FP16 results have been
-checked. Do not start the arena/Triton matrix yet; that backend is not part of
-this confirmation.
+This protocol was frozen before the later arena/Triton phase. Its original
+execution order required checking these FP16 results before starting another
+backend experiment. That later phase is now complete and remains a separate
+schema-v3 suite in [`arena_triton.md`](arena_triton.md); it is not part of this
+0.5B confirmation.
 
 ## 6. Download the artifacts
 

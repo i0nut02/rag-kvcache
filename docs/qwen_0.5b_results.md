@@ -202,7 +202,7 @@ The six formal JSONL inputs recorded by the analyzer are:
 The dataset checksum is
 `99852d874994078e4b4112b71ceca4dd35aa3a24ff6d3a35c051be25295b4fef`.
 
-## Decision and remaining work
+## Decision and subsequent completed work
 
 This confirmation strengthens the current design decision:
 
@@ -213,7 +213,10 @@ This confirmation strengthens the current design decision:
 - CPU INT8 remains a separate capacity/latency/quality tradeoff established by
   the larger 1.5B experiment.
 
-The next implementation step is no longer another model-scale matrix. It is a
-document-owned KV arena followed, if time permits, by a Triton INT8
-restore/dequantization path and a focused microbenchmark against the current
-PyTorch implementation.
+The next implementation step was not another model-scale matrix. The project
+subsequently completed a document-owned KV arena, corrected Triton INT8
+restore/dequantization path, focused restore microbenchmark, and aligned
+100-request comparison against PyTorch. Those results do not alter this 0.5B
+scale conclusion; they are separately versioned in
+[`arena_triton.md`](arena_triton.md) and
+[`generated/arena_triton`](generated/arena_triton/README.md).

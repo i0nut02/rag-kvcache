@@ -10,6 +10,7 @@ from unittest.mock import patch
 from src.quality_cache.reporting.inference_analysis import (
     ConfirmationRun,
     RUN_SPECS,
+    _comparison_plot_labels,
     _validate_suite,
     analyze_inference_confirmation,
     bootstrap_ratio_ci,
@@ -19,6 +20,38 @@ from src.quality_cache.schema import RESULT_SCHEMA_VERSION
 
 
 class InferenceAnalysisTest(unittest.TestCase):
+    def test_speedup_plot_labels_distinguish_physical_backends(self):
+        runs = (
+            ConfirmationRun(
+                "tensor",
+                "Document tensor FP16",
+                "Tensor FP16",
+                "random",
+                "cache",
+                "document",
+                "lru",
+                "accelerator-fp16",
+            ),
+            ConfirmationRun(
+                "triton",
+                "Document CPU INT8, Triton restore",
+                "INT8 Triton",
+                "random",
+                "cache",
+                "document",
+                "lru",
+                "cpu-int8",
+            ),
+        )
+        labels = _comparison_plot_labels(
+            [
+                {"run": "tensor", "workload": "random"},
+                {"run": "triton", "workload": "random"},
+            ],
+            runs,
+        )
+        self.assertEqual(labels, ["random: Tensor FP16", "random: INT8 Triton"])
+
     def test_arena_triton_analysis_suite_covers_six_aligned_paths(self):
         root = Path(__file__).resolve().parents[1]
         runs = load_analysis_suite(root / "configs" / "arena_triton_analysis.json")

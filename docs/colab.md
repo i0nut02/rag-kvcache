@@ -117,10 +117,71 @@ remain in [`qwen_0.5b_confirmation.md`](qwen_0.5b_confirmation.md). Do not use a
 fixed 4 GiB budget when reproducing it; the experiment matches the 1.5B run's
 FP16 working-set fraction.
 
-## 5. Run the arena and Triton phase
+## 5. Run the complete dev confirmation
 
-The optional arena and Triton backends are now implemented. Pull the current
-commit, set allocator configuration before importing Torch, and verify Triton:
+The next evidence phase uses all 2,086 labelled dev questions rather than a
+100-request sample. Open
+[`full_dev_confirmation_colab.ipynb`](../notebooks/full_dev_confirmation_colab.ipynb)
+in Colab for a checkpointed workflow. The selected matrix has 12 runs:
+
+- the first six use the random permutation, which visits every dev question
+  exactly once and therefore provides standard QuALITY accuracy;
+- the final six use the 2,086-request Zipf trace to stress reuse and policy
+  behavior; accuracy on this repeated synthetic trace is not standard QuALITY
+  accuracy;
+- each workload creates one segmented reference JSONL and all of its cached
+  runs reuse that reference, avoiding a second full forward and avoidable CUDA
+  OOMs;
+- fixed-block uses the already tuned 256-token block size, and INT8 uses the
+  validated Triton restore implementation.
+
+Validate every path with ten requests first:
+
+```python
+!python experiments/run_quality.py matrix configs/full_dev_confirmation.json \
+    --profile smoke --execute --resume
+```
+
+Then run the full suite in four resumable groups. `--max-runs` selects a prefix
+of the matrix, while `--resume` skips JSONLs completed by an earlier group:
+
+```python
+!python experiments/run_quality.py matrix configs/full_dev_confirmation.json \
+    --profile full --execute --resume --max-runs 3
+!python experiments/run_quality.py matrix configs/full_dev_confirmation.json \
+    --profile full --execute --resume --max-runs 6
+!python experiments/run_quality.py matrix configs/full_dev_confirmation.json \
+    --profile full --execute --resume --max-runs 9
+!python experiments/run_quality.py matrix configs/full_dev_confirmation.json \
+    --profile full --execute --resume
+```
+
+On a Colab T4, budget approximately 12--18 GPU-hours in total. The segmented
+reference runs dominate elapsed time. The notebook downloads a browser-based
+checkpoint after each group, so it does not require Google Drive space and can
+be restored into a new runtime. A single interrupted run must restart, but all
+previously completed runs remain resumable.
+
+After all 12 JSONLs and manifests are present, generate the validated paired
+analysis:
+
+```python
+!python experiments/run_quality.py analyze-inference \
+    results/full_dev_confirmation/full \
+    --suite-config configs/full_dev_analysis.json \
+    --output-dir results/full_dev_confirmation/analysis \
+    --bootstrap-samples 20000 --seed 42
+```
+
+Keep the frozen 100- and 300-request results unchanged until this complete
+suite passes analysis. The longer run is an additional evidence layer, not a
+silent replacement for earlier artifacts.
+
+## 6. Run the arena and Triton phase
+
+The optional arena and corrected Triton comparison is complete; reproduce it
+only if you need a fresh machine-level replication. Pull the current commit,
+set allocator configuration before importing Torch, and verify Triton:
 
 ```python
 %cd /content/rag-kvcache
@@ -131,19 +192,10 @@ commit, set allocator configuration before importing Torch, and verify Triton:
 !python -m unittest discover -s tests -q
 ```
 
-The supplied 100-request archive validates the segmented, tensor FP16,
-arena-64, arena-256, and PyTorch INT8 paths. Its Triton row exposed repeated
-JIT specialization by article length. After pulling the runtime-stride fix,
-preserve that row and rerun only the short benchmark and Triton path. The
-complete explanation is in [`arena_triton.md`](arena_triton.md).
-
-First archive the diagnostic and rerun the microbenchmark with complete
-hardware provenance:
+First run the corrected restore microbenchmark with complete hardware
+provenance:
 
 ```python
-!mkdir -p results/arena_triton/diagnostic_length_specialized
-!cp results/arena_triton/confirmation/dev_confirmation_document_triton_random_int8_4gib* \
-    results/arena_triton/diagnostic_length_specialized/
 !python experiments/run_quality.py benchmark-restore \
     --model Qwen/Qwen2.5-1.5B-Instruct \
     --device cuda --dtype float16 \
@@ -152,24 +204,18 @@ hardware provenance:
     --output results/arena_triton/restore_microbenchmark_runtime_stride.csv
 ```
 
-Then rerun Triton in a fresh process. Kernel compilation is moved before the
-request loop and reported as `offline_restore_warmup_s` rather than TTFT:
+Then run the six aligned 100-request paths: segmented control, ordinary tensor
+FP16, arena FP16 with 64- and 256-token pages, and CPU INT8 restored with
+PyTorch and Triton. The matrix creates the segmented reference before the
+cached runs; `--resume` safely skips a completed JSONL.
 
 ```python
-!python experiments/run_quality.py run \
-    data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.dev \
-    --split dev --verify-counts \
-    --model Qwen/Qwen2.5-1.5B-Instruct \
-    --device cuda --dtype float16 \
-    --cache-strategy document --policy lru \
-    --storage cpu-int8 --int8-restore-backend triton \
-    --budget-mb 4096 --workload random --seed 42 \
-    --block-tokens 256 --limit 100 --progress-every 1 \
-    --reference-jsonl results/arena_triton/confirmation/dev_confirmation_segmented_random_fp16.jsonl \
-    --output results/arena_triton/confirmation/dev_confirmation_document_triton_random_int8_4gib.jsonl
+!python experiments/run_quality.py matrix configs/arena_triton_confirmation.json \
+    --profile confirmation --execute --resume
 ```
 
-Regenerate the validated comparisons:
+Analyze trace alignment, allocator invariants, correctness, paired speedups,
+and startup amortization:
 
 ```python
 !python experiments/run_quality.py analyze-inference \
@@ -179,18 +225,25 @@ Regenerate the validated comparisons:
     --bootstrap-samples 20000 --seed 42
 ```
 
-For a fresh reproduction without the supplied archive, the original 20-request
-smoke and 100-request matrix remain available through
-`configs/arena_triton_confirmation.json`. Do not use smoke timings as evidence.
+The final reference result uses six 100-request rows, not the 20-request smoke
+profile. It records a 2.671-second one-time Triton warm-up separately from
+online TTFT. PyTorch and Triton INT8 must agree on every A/B/C/D score; both
+should have the same one label mismatch against FP16. Exact reference values,
+hashes, figures, and interpretation are in
+[`generated/arena_triton`](generated/arena_triton/README.md). Do not use smoke
+timings as evidence and do not merge schema-v2 rows into this schema-v3 suite.
 
-## 6. Preserve results before the Colab runtime expires
+## 7. Preserve arena results before the Colab runtime expires
 
 ```python
 from google.colab import files
-!zip -qr quality-colab-results.zip results
-files.download("quality-colab-results.zip")
+!du -sh results/arena_triton
+!zip -qr arena-triton-results.zip results/arena_triton
+files.download("arena-triton-results.zip")
 ```
 
-The downloaded archive should now include `results/arena_triton` as well as any
-previous confirmations. Raw result archives remain intentionally excluded from
-Git.
+This archives only the final phase rather than every earlier matrix, which
+keeps Colab disk usage and the download small. After the browser download has
+completed and you have verified the ZIP locally, it is safe to remove that ZIP
+from the ephemeral Colab runtime. Raw result archives remain intentionally
+excluded from Git.

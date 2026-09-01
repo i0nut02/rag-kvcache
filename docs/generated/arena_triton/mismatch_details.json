@@ -1,0 +1,24 @@
+[
+  {
+    "article_id": "20064",
+    "candidate_label": "A",
+    "comparison": "document_pytorch_random_int8_4gib_vs_segmented",
+    "gold_label": "C",
+    "max_label_logit_delta": 0.203125,
+    "reference_label": "C",
+    "request_id": "20064_CU1CDFL8_6",
+    "request_index": 95,
+    "workload": "random"
+  },
+  {
+    "article_id": "20064",
+    "candidate_label": "A",
+    "comparison": "document_triton_random_int8_4gib_vs_segmented",
+    "gold_label": "C",
+    "max_label_logit_delta": 0.203125,
+    "reference_label": "C",
+    "request_id": "20064_CU1CDFL8_6",
+    "request_index": 95,
+    "workload": "random"
+  }
+]

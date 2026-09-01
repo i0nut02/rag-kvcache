@@ -999,11 +999,7 @@ def _make_figures(
     plt.close(fig)
 
     if comparisons:
-        labels = [
-            f"{row['workload']}: {row['strategy']}/{row['policy']} "
-            f"({'INT8' if row['storage'] == 'cpu-int8' else 'FP16'})"
-            for row in comparisons
-        ]
+        labels = _comparison_plot_labels(comparisons, run_specs)
         speedups = [row["cache_only_speedup"] for row in comparisons]
         lower = [
             value - row["cache_only_speedup_ci95_low"]
@@ -1086,6 +1082,20 @@ def _make_figures(
     artifacts.extend(_save_figure(fig, output_dir / "hit_latency_tradeoff"))
     plt.close(fig)
     return artifacts
+
+
+def _comparison_plot_labels(
+    comparisons: list[dict[str, Any]],
+    run_specs: tuple[ConfirmationRun, ...],
+) -> list[str]:
+    """Return unambiguous labels for backend-specific speedup rows."""
+
+    short_labels = {
+        spec.name: spec.short_label.replace("\n", " ") for spec in run_specs
+    }
+    return [
+        f"{row['workload']}: {short_labels[row['run']]}" for row in comparisons
+    ]
 
 
 def _save_figure(fig, stem: Path) -> list[Path]:

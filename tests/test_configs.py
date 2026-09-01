@@ -316,6 +316,85 @@ class ExperimentConfigTest(unittest.TestCase):
         )
         self.assertEqual(sum("--reference-jsonl" in command for command in commands), 5)
 
+    def test_full_dev_confirmation_is_staged_and_uses_complete_trace(self):
+        root = Path(__file__).resolve().parents[1]
+        config = load_matrix(root / "configs" / "full_dev_confirmation.json")
+        smoke = build_matrix_commands(
+            config, "smoke", root / "results" / "full-dev-smoke"
+        )
+        confirmation = build_matrix_commands(
+            config, "confirmation", root / "results" / "full-dev-confirmation"
+        )
+        full = build_matrix_commands(
+            config, "full", root / "results" / "full-dev"
+        )
+
+        self.assertEqual(len(smoke), 12)
+        self.assertEqual(len({tuple(command) for command in smoke}), 12)
+        self.assertTrue(
+            all(command[command.index("--limit") + 1] == "10" for command in smoke)
+        )
+        self.assertTrue(
+            all(
+                command[command.index("--limit") + 1] == "300"
+                for command in confirmation
+            )
+        )
+        self.assertTrue(all("--limit" not in command for command in full))
+        self.assertTrue(
+            all(
+                command[command.index("--workload") + 1] == "random"
+                for command in full[:6]
+            )
+        )
+        self.assertTrue(
+            all(
+                command[command.index("--workload") + 1] == "zipf"
+                for command in full[6:]
+            )
+        )
+
+        segmented = [
+            command
+            for command in full
+            if command[command.index("--policy") + 1] == "none"
+        ]
+        cached = [command for command in full if command not in segmented]
+        self.assertEqual(len(segmented), 2)
+        self.assertEqual(len(cached), 10)
+        self.assertTrue(all("--baseline-mode" in command for command in segmented))
+        self.assertTrue(all("--budget-mb" not in command for command in segmented))
+        self.assertTrue(all("--reference-jsonl" in command for command in cached))
+        self.assertTrue(
+            all(
+                command[command.index("--budget-mb") + 1] == "4096"
+                for command in cached
+            )
+        )
+        self.assertEqual(
+            sum("--int8-restore-backend" in command for command in full), 2
+        )
+        fixed_block = [
+            command
+            for command in full
+            if command[command.index("--cache-strategy") + 1] == "fixed-block"
+        ]
+        self.assertEqual(len(fixed_block), 2)
+        self.assertTrue(
+            all(
+                command[command.index("--block-tokens") + 1] == "256"
+                for command in fixed_block
+            )
+        )
+
+        analysis = json.loads(
+            (root / "configs" / "full_dev_analysis.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            [run["name"] for run in config["runs"]],
+            [run["name"] for run in analysis["runs"]],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

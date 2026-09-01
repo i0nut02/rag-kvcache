@@ -12,7 +12,7 @@ bounded, stable long-document collection. HotpotQA is mentioned only as
 motivation for rejecting low-reuse workloads; its data and old measurements are
 not part of the evaluation.
 
-The report answers five questions:
+The report answers seven questions:
 
 1. Does exact article-prefix reuse lower time to first token?
 2. Under which request orderings and budgets do eviction policies differ?
@@ -20,6 +20,10 @@ The report answers five questions:
 4. When is offline precomputation amortized by repeated questions?
 5. When does document-aware atomic caching outperform generic fixed-block or
    radix-prefix caching?
+6. Does preallocating a document-owned KV arena improve the current execution
+   path, or only strengthen memory ownership and accounting?
+7. Does a fused Triton kernel improve CPU-INT8 restoration after transfer and
+   one-time compilation are accounted for?
 
 ## Experimental protocol
 
@@ -80,6 +84,24 @@ remains slower than the document unit. The 300-request CPU INT8 confirmation
 changes 2/300 labels, reduces accuracy by 0.67 percentage points, and gives a
 `1.569x` mean speedup; present it as a measured Pareto tradeoff.
 
+Present the arena result as a useful negative systems result. Both page sizes
+preserve all FP16 labels and allocator invariants, but arena-64 and arena-256
+are 11.6% and 9.3% slower than tensor storage because the unmodified
+Transformers attention path reconstructs contiguous legacy caches. The page-
+size comparison still quantifies a real tradeoff: 64-token pages preserve the
+20.31% hit rate with 23.54 MiB tail waste, while 256-token pages reduce store
+and restore overhead at the cost of 114.35 MiB tail waste and an 18.19% hit
+rate.
+
+Keep the Triton claim at the measured layer. The corrected kernel gives
+1.137x--1.243x restore speedup in the synthetic microbenchmark with exact
+output parity. On matched online cache hits, dequantization is 3.754x faster
+and complete restore is 1.209x faster. Host transfer remains dominant, and the
+separate 2.671-second warm-up makes Triton slightly slower when amortized over
+only 100 requests. Use the frozen tables and figures in
+[`generated/arena_triton`](generated/arena_triton/README.md); do not present
+the raw 1.4% all-request TTFT difference as an isolated kernel result.
+
 ## Validity and limitations
 
 The document strategy uses one whole-article storage and eviction unit. The
@@ -94,9 +116,10 @@ arbitrary retrieved-document composition or rapidly changing corpora.
 
 The matched-working-set Qwen2.5-0.5B check is complete and reproduces the main
 cache-only result; its evidence is in
-[`qwen_0.5b_results.md`](qwen_0.5b_results.md). The Triton restore-only
-microbenchmark and arena confirmation are complete. The initial end-to-end
-Triton row exposed repeated JIT compilation from token-length specialization;
-it is diagnostic rather than final TTFT evidence, and only that row needs a
-corrected rerun. Results, the fix, and exit criteria are in
-[`arena_triton.md`](arena_triton.md) and [`next_steps.md`](next_steps.md).
+[`qwen_0.5b_results.md`](qwen_0.5b_results.md). The arena confirmation and two
+corrected Triton microbenchmark repetitions are also complete. The initial
+token-length-specialized Triton row remains diagnostic history; final claims
+use the runtime-stride, prewarmed replacement. Results, startup accounting, and
+reproduction commands are in [`arena_triton.md`](arena_triton.md), while
+[`next_steps.md`](next_steps.md) distinguishes completed evidence from optional
+future systems work.

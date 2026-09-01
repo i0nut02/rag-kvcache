@@ -59,6 +59,10 @@ nearly every article length. It is now runtime-valued and explicitly excluded
 from specialization. One model-geometry compile occurs before the request loop,
 and its cost is reported separately rather than hidden in TTFT. This is why the
 project retains both microbenchmarks and variable-length end-to-end traces.
+The corrected confirmation removes the length-dependent spikes, exactly
+matches PyTorch INT8 scores on all 100 requests, and reduces mean hit
+dequantization from 8.06 to 2.15 ms. The separately reported 2.671-second
+warm-up also prevents a misleading short-job speedup claim.
 
 The cleanup also removes the unused standalone `dequantize` function and
 unused concrete-block imports. Existing factories and bounded heaps were kept;

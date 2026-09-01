@@ -1,0 +1,125 @@
+{
+  "analysis_type": "full-dev-inference-confirmation",
+  "runs": [
+    {
+      "name": "01_segmented_random_fp16",
+      "label": "Segmented, no document cache",
+      "short_label": "Segmented",
+      "workload": "random",
+      "kind": "segmented",
+      "strategy": "none",
+      "policy": "none",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "02_document_lru_random_fp16_4gib",
+      "label": "Document LRU accelerator FP16",
+      "short_label": "Document FP16",
+      "workload": "random",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "lru",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "03_fixed_block_256_lru_random_fp16_4gib",
+      "label": "Fixed-block 256 LRU accelerator FP16",
+      "short_label": "Fixed block 256",
+      "workload": "random",
+      "kind": "cache",
+      "strategy": "fixed-block",
+      "policy": "lru",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "04_radix_lru_random_fp16_4gib",
+      "label": "Radix LRU accelerator FP16",
+      "short_label": "Radix FP16",
+      "workload": "random",
+      "kind": "cache",
+      "strategy": "radix",
+      "policy": "lru",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "05_document_lru_random_cpu_fp16_4gib",
+      "label": "Document LRU CPU FP16",
+      "short_label": "CPU FP16",
+      "workload": "random",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "lru",
+      "storage": "cpu-fp16"
+    },
+    {
+      "name": "06_document_lru_random_int8_triton_4gib",
+      "label": "Document LRU CPU INT8, Triton restore",
+      "short_label": "CPU INT8 Triton",
+      "workload": "random",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "lru",
+      "storage": "cpu-int8"
+    },
+    {
+      "name": "07_segmented_zipf_fp16",
+      "label": "Segmented, no document cache",
+      "short_label": "Segmented",
+      "workload": "zipf",
+      "kind": "segmented",
+      "strategy": "none",
+      "policy": "none",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "08_document_lru_zipf_fp16_4gib",
+      "label": "Document LRU accelerator FP16",
+      "short_label": "Document FP16",
+      "workload": "zipf",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "lru",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "09_fixed_block_256_lru_zipf_fp16_4gib",
+      "label": "Fixed-block 256 LRU accelerator FP16",
+      "short_label": "Fixed block 256",
+      "workload": "zipf",
+      "kind": "cache",
+      "strategy": "fixed-block",
+      "policy": "lru",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "10_radix_lru_zipf_fp16_4gib",
+      "label": "Radix LRU accelerator FP16",
+      "short_label": "Radix FP16",
+      "workload": "zipf",
+      "kind": "cache",
+      "strategy": "radix",
+      "policy": "lru",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "11_document_gdsf_zipf_fp16_4gib",
+      "label": "Document GDSF accelerator FP16",
+      "short_label": "Document GDSF",
+      "workload": "zipf",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "gdsf",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "12_document_lru_zipf_int8_triton_4gib",
+      "label": "Document LRU CPU INT8, Triton restore",
+      "short_label": "CPU INT8 Triton",
+      "workload": "zipf",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "lru",
+      "storage": "cpu-int8"
+    }
+  ]
+}

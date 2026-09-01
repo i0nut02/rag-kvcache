@@ -1,10 +1,10 @@
-# Completed follow-ups and remaining work
+# Completed follow-ups and final project status
 
 The 1.5B empirical baseline is now frozen. Fixed-block granularity, the larger
 INT8 correctness check, run-to-run timing repetitions, and the matched-capacity
 0.5B confirmation are complete. The full interpretation is in
 [`results.md`](results.md); this page separates finished evidence from the
-remaining implementation plan.
+optional extensions that are outside the current course-project claim.
 
 ## Decisions now supported by data
 
@@ -132,10 +132,10 @@ to SGLang, flags, invariants, and exact CUDA commands are in
 [`arena_triton.md`](arena_triton.md).
 
 The aligned 100-request matrix is complete. Tensor FP16, arena-64, arena-256,
-and PyTorch CPU INT8 are accepted results; both arena paths preserve all FP16
-labels and allocator invariants. The arena is slower than tensor storage in the
-Transformers execution path, while the 64/256 comparison quantifies the
-metadata/fragmentation/operation tradeoff.
+PyTorch CPU INT8, and corrected Triton CPU INT8 are accepted results; both
+arena paths preserve all FP16 labels and allocator invariants. The arena is
+9--12% slower than tensor storage in the Transformers execution path, while
+the 64/256 comparison quantifies the metadata/fragmentation/operation tradeoff.
 
 The first Triton end-to-end row exposed a real implementation issue:
 token-dependent `HEAD_STRIDE` was a compile-time constant, so first-seen
@@ -145,15 +145,42 @@ The stride is now runtime-valued and protected from specialization, and one JIT
 warm-up is measured separately from TTFT. Detailed evidence is in
 [`arena_triton.md`](arena_triton.md).
 
-The remaining work is narrow:
+The corrected replacement is complete. In the restore microbenchmark, Triton
+is 1.137x--1.243x faster across 512--8,192 tokens with exact output parity. On
+the 31 matched cache hits, it reduces dequantization by 73.4% and complete
+restore by 17.3%. PyTorch and Triton INT8 agree on every label score. The
+2.671-second one-time warm-up makes Triton slightly slower when amortized over
+only 100 requests, so the contribution is framed as a long-lived-server kernel
+optimization rather than a universal end-to-end win. Frozen evidence is in
+[`generated/arena_triton`](generated/arena_triton/README.md).
 
-1. Push the runtime-stride/warm-up fix and run the CUDA two-length correctness
-   test.
-2. Preserve the old Triton diagnostic, rerun the short restore benchmark, and
-   rerun only the 100-request Triton path in a fresh process.
-3. Validate the replacement with `configs/arena_triton_analysis.json`, then
-   freeze the generated tables and figures. Do not rerun the five accepted
-   confirmation paths.
+## Planned robustness layer: complete dev traces
+
+An additional, separately versioned suite is configured to run all 2,086 dev
+requests with Qwen2.5-1.5B. It does not replace the frozen 100- and 300-request
+evidence. Its purpose is to tighten accuracy estimates, expose rare label
+changes, and test whether the strategy and policy conclusions persist over a
+longer trace.
+
+The random half compares document, fixed-block-256, radix, CPU FP16, and CPU
+INT8/Triton against one aligned segmented reference. The Zipf half repeats the
+strategy comparison, adds document GDSF, and uses its own aligned reference.
+The complete protocol is in `configs/full_dev_confirmation.json`, its analyzer
+contract is in `configs/full_dev_analysis.json`, and the resumable Colab
+workflow is
+[`full_dev_confirmation_colab.ipynb`](../notebooks/full_dev_confirmation_colab.ipynb).
+Only the random trace's accuracy is standard one-pass QuALITY dev accuracy.
+
+No experiment remains mandatory for the current report. Optional new phases
+would be:
+
+1. pinned and asynchronous CPU-to-GPU transfer with stream-safe lifetime tests;
+2. page-table-aware attention that consumes arena locations directly rather
+   than reconstructing a contiguous Transformers cache; or
+3. replication on another GPU architecture or model family.
+
+Each would require a new protocol and should not be folded silently into the
+frozen evidence.
 
 ## Final report sequence
 
@@ -167,6 +194,5 @@ The remaining work is narrow:
 5. Present INT8 as a memory/latency/accuracy frontier, including both changed
    questions and the restore-timer limitation.
 6. Report the three-run timing medians and ranges.
-7. Add the completed second-model and arena results as separately versioned
-   evidence; add the corrected end-to-end Triton row only after the targeted
-   rerun passes.
+7. Add the completed second-model, arena, corrected restore microbenchmark, and
+   startup-amortized Triton results as separately versioned evidence.
