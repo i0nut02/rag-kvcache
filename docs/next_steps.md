@@ -140,7 +140,8 @@ The remaining work is empirical:
 
 1. Archive the original restore CSV/manifest and rerun the short benchmark on
    the final refactored commit so hardware and code provenance are complete.
-2. Run the ten-request six-path smoke matrix and inspect memory plus agreement.
+2. Run the 20-request six-path smoke matrix and inspect restoration, memory,
+   and agreement.
 3. Run the aligned 100-request confirmation only after smoke passes.
 4. Add arena fragmentation, end-to-end restore/TTFT, and label tables to the
    report without replacing the frozen baseline.

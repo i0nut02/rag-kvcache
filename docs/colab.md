@@ -144,7 +144,9 @@ the final refactored commit so the report artifact has exact code provenance:
     --output results/arena_triton/restore_microbenchmark_final.csv
 ```
 
-Then run the ten-request matrix:
+Then run the 20-request matrix. Twenty is intentional: the seed-42 random
+trace's first repeated article is at position 13, so ten requests would not
+exercise cache restoration:
 
 ```python
 !python experiments/run_quality.py matrix \

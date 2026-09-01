@@ -191,8 +191,11 @@ python experiments/run_quality.py benchmark-restore \
   --output results/arena_triton/restore_microbenchmark_final.csv
 ```
 
-The next unfinished step is ten requests to validate allocation, kernel
-compilation, logits, and GPU memory before the 100-request confirmation:
+The next unfinished step is a 20-request smoke trace to validate allocation,
+at least one cache restore, kernel compilation, logits, and GPU memory before
+the 100-request confirmation. Seed-42 random has no repeated article in its
+first ten positions; its first repeat is position 13, so a ten-request smoke
+would never exercise the restore path:
 
 ```bash
 python experiments/run_quality.py matrix \
@@ -211,8 +214,9 @@ python experiments/run_quality.py matrix \
 
 The matrix contains one segmented random reference plus tensor FP16, arena
 FP16 with 64- and 256-token pages, PyTorch CPU INT8, and Triton CPU INT8. All
-five cached runs use the same 100 trace positions and saved reference JSONL.
-Smoke rows are functional checks and must not be reported as timing evidence.
+five cached runs use the same aligned trace positions and saved reference
+JSONL. Smoke rows are functional checks and must not be reported as timing
+evidence.
 
 ## Required interpretation
 

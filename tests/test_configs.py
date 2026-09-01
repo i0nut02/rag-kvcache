@@ -293,8 +293,18 @@ class ExperimentConfigTest(unittest.TestCase):
     def test_arena_triton_confirmation_has_one_reference_and_five_comparisons(self):
         root = Path(__file__).resolve().parents[1]
         config = load_matrix(root / "configs" / "arena_triton_confirmation.json")
+        smoke_commands = build_matrix_commands(
+            config, "smoke", root / "results" / "arena-triton-smoke"
+        )
         commands = build_matrix_commands(
             config, "confirmation", root / "results" / "arena-triton"
+        )
+        self.assertEqual(len(smoke_commands), 6)
+        self.assertTrue(
+            all(
+                command[command.index("--limit") + 1] == "20"
+                for command in smoke_commands
+            )
         )
         self.assertEqual(len(commands), 6)
         self.assertTrue(

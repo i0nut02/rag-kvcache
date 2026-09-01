@@ -12,7 +12,7 @@
   "output_root": "results/arena_triton",
   "profiles": {
     "smoke": {
-      "limit": 10
+      "limit": 20
     },
     "confirmation": {
       "limit": 100
