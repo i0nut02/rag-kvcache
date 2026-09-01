@@ -95,6 +95,8 @@ arbitrary retrieved-document composition or rapidly changing corpora.
 The matched-working-set Qwen2.5-0.5B check is complete and reproduces the main
 cache-only result; its evidence is in
 [`qwen_0.5b_results.md`](qwen_0.5b_results.md). The Triton restore-only
-microbenchmark is complete, while the arena and end-to-end Triton confirmation
-remain pending; results and exit criteria are in
+microbenchmark and arena confirmation are complete. The initial end-to-end
+Triton row exposed repeated JIT compilation from token-length specialization;
+it is diagnostic rather than final TTFT evidence, and only that row needs a
+corrected rerun. Results, the fix, and exit criteria are in
 [`arena_triton.md`](arena_triton.md) and [`next_steps.md`](next_steps.md).

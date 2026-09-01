@@ -131,20 +131,29 @@ cache and invalidate the memory-capacity comparison. The architectural mapping
 to SGLang, flags, invariants, and exact CUDA commands are in
 [`arena_triton.md`](arena_triton.md).
 
-The PyTorch/Triton restore microbenchmark is complete. Triton reduces mean
-restore time by 13.0%--21.6% across 512--8,192 tokens with exact output parity
-in the sampled tensors; transfer dominates the longest restore. The detailed
-table and provenance caveat are in [`arena_triton.md`](arena_triton.md).
+The aligned 100-request matrix is complete. Tensor FP16, arena-64, arena-256,
+and PyTorch CPU INT8 are accepted results; both arena paths preserve all FP16
+labels and allocator invariants. The arena is slower than tensor storage in the
+Transformers execution path, while the 64/256 comparison quantifies the
+metadata/fragmentation/operation tradeoff.
 
-The remaining work is empirical:
+The first Triton end-to-end row exposed a real implementation issue:
+token-dependent `HEAD_STRIDE` was a compile-time constant, so first-seen
+article lengths triggered repeated JIT compilation. The outputs are exactly
+equal to PyTorch INT8, but that row is diagnostic rather than timing evidence.
+The stride is now runtime-valued and protected from specialization, and one JIT
+warm-up is measured separately from TTFT. Detailed evidence is in
+[`arena_triton.md`](arena_triton.md).
 
-1. Archive the original restore CSV/manifest and rerun the short benchmark on
-   the final refactored commit so hardware and code provenance are complete.
-2. Run the 20-request six-path smoke matrix and inspect restoration, memory,
-   and agreement.
-3. Run the aligned 100-request confirmation only after smoke passes.
-4. Add arena fragmentation, end-to-end restore/TTFT, and label tables to the
-   report without replacing the frozen baseline.
+The remaining work is narrow:
+
+1. Push the runtime-stride/warm-up fix and run the CUDA two-length correctness
+   test.
+2. Preserve the old Triton diagnostic, rerun the short restore benchmark, and
+   rerun only the 100-request Triton path in a fresh process.
+3. Validate the replacement with `configs/arena_triton_analysis.json`, then
+   freeze the generated tables and figures. Do not rerun the five accepted
+   confirmation paths.
 
 ## Final report sequence
 
@@ -158,6 +167,6 @@ The remaining work is empirical:
 5. Present INT8 as a memory/latency/accuracy frontier, including both changed
    questions and the restore-timer limitation.
 6. Report the three-run timing medians and ranges.
-7. Add the completed second-model check and restore microbenchmark as
-   separately versioned evidence; add arena/end-to-end Triton results only
-   after the matched confirmation passes.
+7. Add the completed second-model and arena results as separately versioned
+   evidence; add the corrected end-to-end Triton row only after the targeted
+   rerun passes.

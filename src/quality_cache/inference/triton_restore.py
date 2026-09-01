@@ -23,7 +23,7 @@ except (ImportError, RuntimeError, OSError):  # pragma: no cover - platform depe
 
 if triton is not None:
 
-    @triton.jit
+    @triton.jit(do_not_specialize=["element_count", "head_stride"])
     def _dequantize_kv_kernel(
         key_values,
         key_scales,
@@ -32,13 +32,16 @@ if triton is not None:
         key_output,
         value_output,
         element_count,
-        HEAD_STRIDE: tl.constexpr,
+        head_stride,
         HEAD_COUNT: tl.constexpr,
         BLOCK_SIZE: tl.constexpr,
     ):
         offsets = tl.program_id(0) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
         mask = offsets < element_count
-        heads = (offsets // HEAD_STRIDE) % HEAD_COUNT
+        # Keep the token-dependent stride runtime-valued. Making it constexpr
+        # specializes the kernel for every article length and causes a JIT
+        # compile on the first restore of nearly every document.
+        heads = (offsets // head_stride) % HEAD_COUNT
         key = tl.load(key_values + offsets, mask=mask, other=0.0).to(tl.float32)
         value = tl.load(value_values + offsets, mask=mask, other=0.0).to(
             tl.float32
@@ -119,9 +122,48 @@ def dequantize_kv_int8_cuda(
         key_output,
         value_output,
         element_count,
-        HEAD_STRIDE=head_stride,
+        head_stride,
         HEAD_COUNT=int(key_values.shape[1]),
         BLOCK_SIZE=block_size,
         num_warps=4,
     )
     return key_output, value_output
+
+
+def warmup_triton_restore(
+    *,
+    device,
+    dtype,
+    kv_heads: int,
+    head_dim: int,
+) -> float:
+    """Compile the model-geometry kernel once outside request timing."""
+    import time
+
+    import torch
+
+    resolved_device = torch.device(device)
+    if not triton_restore_available(resolved_device):
+        raise TritonRestoreUnavailable(
+            "Triton INT8 restore warm-up requires an available CUDA device"
+        )
+    if kv_heads <= 0 or head_dim <= 0:
+        raise ValueError("Triton restore geometry must be positive")
+    values = torch.zeros(
+        (1, kv_heads, 1, head_dim),
+        dtype=torch.int8,
+        device=resolved_device,
+    )
+    scales = torch.ones(kv_heads, dtype=torch.float32, device=resolved_device)
+    started = time.perf_counter()
+    key_output, value_output = dequantize_kv_int8_cuda(
+        values,
+        scales,
+        values,
+        scales,
+        dtype=dtype,
+    )
+    torch.cuda.synchronize(resolved_device)
+    elapsed = time.perf_counter() - started
+    del key_output, value_output, values, scales
+    return elapsed

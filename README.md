@@ -264,8 +264,10 @@ the staged Qwen2.5-0.5B scale-confirmation commands are in
 results are in [`docs/qwen_0.5b_results.md`](docs/qwen_0.5b_results.md). The
 implemented arena/Triton phase and commands are in
 [`docs/arena_triton.md`](docs/arena_triton.md). Its restore-only CUDA
-microbenchmark is complete; the matched end-to-end measurements remain to be
-collected. The bounded architecture review and refactor rationale are in
+microbenchmark and matched arena measurements are complete. Its first
+end-to-end Triton row found a length-specialization/JIT issue; the correction
+is implemented and requires one targeted Triton rerun. The bounded architecture
+review and refactor rationale are in
 [`docs/code_quality.md`](docs/code_quality.md).
 
 Every result receives a neighboring manifest containing the result schema and dataset checksum,

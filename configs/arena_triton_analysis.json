@@ -1,0 +1,65 @@
+{
+  "analysis_type": "arena-triton-confirmation",
+  "runs": [
+    {
+      "name": "segmented_random_fp16",
+      "label": "Segmented, no document cache",
+      "short_label": "Segmented",
+      "workload": "random",
+      "kind": "segmented",
+      "strategy": "none",
+      "policy": "none",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "document_tensor_random_fp16_4gib",
+      "label": "Document tensor FP16",
+      "short_label": "Tensor FP16",
+      "workload": "random",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "lru",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "document_arena64_random_fp16_4gib",
+      "label": "Document arena-64 FP16",
+      "short_label": "Arena 64",
+      "workload": "random",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "lru",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "document_arena256_random_fp16_4gib",
+      "label": "Document arena-256 FP16",
+      "short_label": "Arena 256",
+      "workload": "random",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "lru",
+      "storage": "accelerator-fp16"
+    },
+    {
+      "name": "document_pytorch_random_int8_4gib",
+      "label": "Document CPU INT8, PyTorch restore",
+      "short_label": "INT8 PyTorch",
+      "workload": "random",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "lru",
+      "storage": "cpu-int8"
+    },
+    {
+      "name": "document_triton_random_int8_4gib",
+      "label": "Document CPU INT8, Triton restore",
+      "short_label": "INT8 Triton",
+      "workload": "random",
+      "kind": "cache",
+      "strategy": "document",
+      "policy": "lru",
+      "storage": "cpu-int8"
+    }
+  ]
+}

@@ -131,42 +131,57 @@ commit, set allocator configuration before importing Torch, and verify Triton:
 !python -m unittest discover -s tests -q
 ```
 
-The first restore-only benchmark established the expected Triton trend. Keep
-its CSV and neighboring manifest, then rerun this short command after pulling
-the final refactored commit so the report artifact has exact code provenance:
+The supplied 100-request archive validates the segmented, tensor FP16,
+arena-64, arena-256, and PyTorch INT8 paths. Its Triton row exposed repeated
+JIT specialization by article length. After pulling the runtime-stride fix,
+preserve that row and rerun only the short benchmark and Triton path. The
+complete explanation is in [`arena_triton.md`](arena_triton.md).
+
+First archive the diagnostic and rerun the microbenchmark with complete
+hardware provenance:
 
 ```python
+!mkdir -p results/arena_triton/diagnostic_length_specialized
+!cp results/arena_triton/confirmation/dev_confirmation_document_triton_random_int8_4gib* \
+    results/arena_triton/diagnostic_length_specialized/
 !python experiments/run_quality.py benchmark-restore \
     --model Qwen/Qwen2.5-1.5B-Instruct \
     --device cuda --dtype float16 \
     --tokens 512 2048 8192 \
     --backends pytorch triton --warmup 2 --repeats 10 --seed 42 \
-    --output results/arena_triton/restore_microbenchmark_final.csv
+    --output results/arena_triton/restore_microbenchmark_runtime_stride.csv
 ```
 
-Then run the 20-request matrix. Twenty is intentional: the seed-42 random
-trace's first repeated article is at position 13, so ten requests would not
-exercise cache restoration:
+Then rerun Triton in a fresh process. Kernel compilation is moved before the
+request loop and reported as `offline_restore_warmup_s` rather than TTFT:
 
 ```python
-!python experiments/run_quality.py matrix \
-    configs/arena_triton_confirmation.json \
-    --profile smoke --execute --resume
+!python experiments/run_quality.py run \
+    data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.dev \
+    --split dev --verify-counts \
+    --model Qwen/Qwen2.5-1.5B-Instruct \
+    --device cuda --dtype float16 \
+    --cache-strategy document --policy lru \
+    --storage cpu-int8 --int8-restore-backend triton \
+    --budget-mb 4096 --workload random --seed 42 \
+    --block-tokens 256 --limit 100 --progress-every 1 \
+    --reference-jsonl results/arena_triton/confirmation/dev_confirmation_segmented_random_fp16.jsonl \
+    --output results/arena_triton/confirmation/dev_confirmation_document_triton_random_int8_4gib.jsonl
 ```
 
-Inspect the six smoke summaries and GPU logs. If all six finish, FP16 arena
-labels agree with the reference, and no allocation exceeds its budget, run the
-100-request confirmation:
+Regenerate the validated comparisons:
 
 ```python
-!python experiments/run_quality.py matrix \
-    configs/arena_triton_confirmation.json \
-    --profile confirmation --execute --resume
+!python experiments/run_quality.py analyze-inference \
+    results/arena_triton/confirmation \
+    --suite-config configs/arena_triton_analysis.json \
+    --output-dir results/arena_triton/analysis \
+    --bootstrap-samples 20000 --seed 42
 ```
 
-The detailed SGLang mapping, metric meanings, and interpretation rules are in
-[`arena_triton.md`](arena_triton.md). Do not use the smoke profile as timing
-evidence.
+For a fresh reproduction without the supplied archive, the original 20-request
+smoke and 100-request matrix remain available through
+`configs/arena_triton_confirmation.json`. Do not use smoke timings as evidence.
 
 ## 6. Preserve results before the Colab runtime expires
 

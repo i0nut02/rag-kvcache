@@ -59,9 +59,11 @@ Current supported choices are:
 - CPU INT8 is a memory/latency/quality tradeoff, not a lossless mode.
 
 Do not report smoke runs as timing evidence. Do not replace the frozen 1.5B
-numbers with a single new run. Remaining planned work is a matched-working-set
-Qwen2.5-0.5B confirmation followed by an optional KV arena and Triton INT8
-restore path.
+numbers with a single new run. The matched-working-set Qwen2.5-0.5B
+confirmation and the KV-arena comparison are complete. The first end-to-end
+Triton row exposed token-length-dependent JIT specialization and is diagnostic
+only; the remaining experiment is the corrected, prewarmed Triton INT8 restore
+rerun described in `docs/arena_triton.md`.
 
 ## Repository map
 

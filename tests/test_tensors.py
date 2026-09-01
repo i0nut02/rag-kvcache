@@ -15,6 +15,7 @@ from src.quality_cache.inference.restore import (
     resolve_int8_restore_backend,
     restore_blocks,
     restore_blocks_profiled,
+    warmup_int8_restore_backend,
 )
 from src.quality_cache.inference.tensors import (
     resolve_storage_device,
@@ -75,6 +76,44 @@ class TensorStorageTest(unittest.TestCase):
     def test_explicit_triton_restore_rejects_cpu(self):
         with self.assertRaisesRegex(ValueError, "requires CUDA"):
             resolve_int8_restore_backend("triton", "cpu")
+
+    def test_pytorch_restore_warmup_has_no_offline_cost(self):
+        backend, elapsed = warmup_int8_restore_backend(
+            "pytorch",
+            device="cpu",
+            dtype=torch.float16,
+            kv_heads=2,
+            head_dim=8,
+        )
+        self.assertEqual(backend, "pytorch")
+        self.assertEqual(elapsed, 0.0)
+
+    def test_triton_restore_warmup_is_delegated(self):
+        with (
+            patch(
+                "src.quality_cache.inference.restore.resolve_int8_restore_backend",
+                return_value="triton",
+            ),
+            patch(
+                "src.quality_cache.inference.triton_restore.warmup_triton_restore",
+                return_value=1.25,
+            ) as warmup,
+        ):
+            backend, elapsed = warmup_int8_restore_backend(
+                "triton",
+                device="cuda",
+                dtype=torch.float16,
+                kv_heads=2,
+                head_dim=8,
+            )
+        self.assertEqual(backend, "triton")
+        self.assertEqual(elapsed, 1.25)
+        warmup.assert_called_once_with(
+            device="cuda",
+            dtype=torch.float16,
+            kv_heads=2,
+            head_dim=8,
+        )
 
     def test_stored_block_slice_spans_physical_boundaries(self):
         blocks = store_blocks(self.cache, "cpu-fp16", 4)
@@ -158,6 +197,28 @@ class TensorStorageTest(unittest.TestCase):
         self.assertEqual(triton_result.backend, "triton")
         for expected_layer, actual_layer in zip(
             pytorch_result.cache, triton_result.cache
+        ):
+            for expected, actual in zip(expected_layer, actual_layer):
+                torch.testing.assert_close(expected, actual, rtol=0, atol=0)
+
+        shorter = tuple(
+            (key[..., :7, :], value[..., :7, :]) for key, value in self.cache
+        )
+        shorter_blocks = store_blocks(shorter, "cpu-int8", 7)
+        shorter_pytorch = restore_blocks_profiled(
+            shorter_blocks,
+            dtype=torch.float16,
+            device="cuda",
+            int8_backend="pytorch",
+        )
+        shorter_triton = restore_blocks_profiled(
+            shorter_blocks,
+            dtype=torch.float16,
+            device="cuda",
+            int8_backend="triton",
+        )
+        for expected_layer, actual_layer in zip(
+            shorter_pytorch.cache, shorter_triton.cache
         ):
             for expected, actual in zip(expected_layer, actual_layer):
                 torch.testing.assert_close(expected, actual, rtol=0, atol=0)

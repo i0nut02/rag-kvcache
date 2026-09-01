@@ -19,6 +19,14 @@ from src.quality_cache.schema import RESULT_SCHEMA_VERSION
 
 
 class InferenceAnalysisTest(unittest.TestCase):
+    def test_arena_triton_analysis_suite_covers_six_aligned_paths(self):
+        root = Path(__file__).resolve().parents[1]
+        runs = load_analysis_suite(root / "configs" / "arena_triton_analysis.json")
+        self.assertEqual(len(runs), 6)
+        self.assertEqual(sum(run.kind == "segmented" for run in runs), 1)
+        self.assertEqual(sum(run.storage == "cpu-int8" for run in runs), 2)
+        self.assertEqual(len({run.workload for run in runs}), 1)
+
     def test_paired_bootstrap_is_deterministic(self):
         first = bootstrap_ratio_ci([2.0, 2.0], [1.0, 1.0], samples=100, seed=7)
         second = bootstrap_ratio_ci([2.0, 2.0], [1.0, 1.0], samples=100, seed=7)
@@ -83,6 +91,9 @@ class InferenceAnalysisTest(unittest.TestCase):
                 {"random": 2, "zipf": 2},
             )
             self.assertEqual(len(diagnostics["mismatch_details"]), 2)
+            report = (output / "results.md").read_text(encoding="utf-8")
+            self.assertIn("| Workload | Path | Storage |", report)
+            self.assertIn("Document LRU FP16", report)
 
     def test_custom_suite_does_not_require_a_full_control(self):
         with tempfile.TemporaryDirectory() as directory:

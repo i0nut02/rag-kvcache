@@ -266,6 +266,25 @@ Radix is close in latency but uses about 307 times as much peak metadata. The
 full protocol, confidence intervals, correctness table, limitations, and input
 hashes are in [`qwen_0.5b_results.md`](qwen_0.5b_results.md).
 
+## Arena and Triton systems follow-up
+
+The aligned 100-request arena experiment is complete. Against a 1.911-second
+segmented control, tensor FP16, arena-64, and arena-256 have mean TTFTs of
+1.612, 1.701, and 1.665 seconds. Both arena modes preserve every FP16 label and
+all allocation invariants, but neither beats tensor storage because the current
+Transformers attention path still reconstructs contiguous caches. Arena-64
+uses less tail padding and retains the 20.31% tensor hit rate; arena-256 reduces
+page-operation overhead but its 114.35 MiB peak tail waste lowers hit rate to
+18.19%.
+
+The pre-fix restore microbenchmark shows a 1.133x--1.166x Triton restore
+speedup with exact synthetic output parity. Because the runtime-stride change
+alters the compiled kernel, that short benchmark also requires a targeted
+rerun. The first end-to-end Triton row is not final evidence: a
+token-length-dependent `tl.constexpr` caused repeated JIT compilation. The fix
+and the two remaining targeted commands are documented in
+[`arena_triton.md`](arena_triton.md).
+
 ## Validity limits
 
 - QuALITY is document-grounded QA over a bounded stable collection, not
@@ -281,10 +300,10 @@ hashes are in [`qwen_0.5b_results.md`](qwen_0.5b_results.md).
 - The original request-level bootstrap intervals capture within-trace request
   variation; the three-run ranges capture a small amount of system variation.
   Neither is a multi-GPU confidence interval.
-- The frozen INT8 results predate separate restore-stage instrumentation. A
-  synthetic CUDA restore microbenchmark now shows a 1.149x--1.276x Triton
-  restore speedup, but the matched arena/Triton end-to-end matrix is not yet
-  complete. This is kernel-path evidence, not a TTFT claim.
+- The frozen INT8 results predate separate restore-stage instrumentation. The
+  newer synthetic CUDA restore run is kernel-path evidence; its first matched
+  end-to-end Triton row exposed repeated JIT specialization and is explicitly
+  excluded from final TTFT claims until the corrected row is rerun.
 - The calibrated no-inference prefill model is not observed TTFT and cannot be
   used as if it were a CUDA timing result.
 
@@ -294,10 +313,10 @@ The empirical 1.5B baseline and matched-working-set 0.5B scale check are now
 sufficient for the course report. Remaining experiments should be narrow
 rather than another full cross-product:
 
-1. archive the completed restore microbenchmark with its hardware manifest;
-2. run the selected arena/Triton smoke and 100-request end-to-end paths;
-3. update the final figures with three-run timing summaries and present INT8 as
-   a Pareto tradeoff rather than a lossless optimization.
+1. push the runtime-stride/JIT-warm-up correction;
+2. rerun only the short restore benchmark and 100-request Triton path;
+3. freeze the arena/Triton analysis artifacts while preserving the original
+   length-specialized row as diagnostic evidence.
 
 The concrete sequence is maintained in [`next_steps.md`](next_steps.md).
 

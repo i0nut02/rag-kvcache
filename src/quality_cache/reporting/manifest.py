@@ -25,12 +25,36 @@ def hardware_details() -> dict[str, Any]:
         details.update(
             {
                 "torch": torch.__version__,
+                "torch_cuda": getattr(torch.version, "cuda", None),
                 "mps_available": bool(torch.backends.mps.is_available()),
                 "cuda_available": bool(torch.cuda.is_available()),
             }
         )
+        if torch.cuda.is_available():
+            try:
+                index = torch.cuda.current_device()
+                properties = torch.cuda.get_device_properties(index)
+                details.update(
+                    {
+                        "cuda_device_index": index,
+                        "cuda_device_name": torch.cuda.get_device_name(index),
+                        "cuda_device_total_memory": int(properties.total_memory),
+                        "cuda_device_capability": list(
+                            torch.cuda.get_device_capability(index)
+                        ),
+                    }
+                )
+            except (AssertionError, RuntimeError):
+                # Manifest collection must not make an otherwise valid run fail.
+                details["cuda_device_query_failed"] = True
     except ImportError:
         details["torch"] = None
+    try:
+        import triton
+
+        details["triton"] = triton.__version__
+    except (ImportError, RuntimeError, OSError):
+        details["triton"] = None
     return details
 
 

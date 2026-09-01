@@ -18,7 +18,10 @@ from .data import (
     load_quality_split,
 )
 from .inference.arena import KV_BACKENDS
-from .inference.restore import INT8_RESTORE_BACKENDS
+from .inference.restore import (
+    INT8_RESTORE_BACKENDS,
+    warmup_int8_restore_backend,
+)
 from .inference.tensors import STORAGE_MODES
 from .inference.reference import attach_offline_reference, load_reference_jsonl
 from .prompt import PROMPT_VERSION
@@ -757,6 +760,32 @@ def _run(args, articles, experiment_context=None) -> int:
         )
     elif args.offline_prefill:
         raise ValueError("offline prefill is not applicable to --policy none")
+    offline_restore_warmup_s = 0.0
+    resolved_int8_restore_backend = "none"
+    if cache is not None and not args.no_inference and args.storage == "cpu-int8":
+        config = runner.model.config
+        kv_heads = int(
+            getattr(config, "num_key_value_heads", config.num_attention_heads)
+        )
+        head_dim = int(
+            getattr(
+                config,
+                "head_dim",
+                config.hidden_size // config.num_attention_heads,
+            )
+        )
+        (
+            resolved_int8_restore_backend,
+            offline_restore_warmup_s,
+        ) = warmup_int8_restore_backend(
+            args.int8_restore_backend,
+            device=runner.device,
+            dtype=runner.dtype,
+            kv_heads=kv_heads,
+            head_dim=head_dim,
+        )
+    args.resolved_int8_restore_backend = resolved_int8_restore_backend
+    args.offline_restore_warmup_s = offline_restore_warmup_s
     offline_prefill_s = 0.0
     if args.offline_prefill:
         counts = Counter(request.article_id for request in trace)
@@ -832,6 +861,8 @@ def _run(args, articles, experiment_context=None) -> int:
                 args.arena_page_tokens if args.kv_backend == "arena" else 0
             ),
             "int8_restore_backend_requested": args.int8_restore_backend,
+            "int8_restore_backend_resolved": resolved_int8_restore_backend,
+            "offline_restore_warmup_s": offline_restore_warmup_s,
             "prefill_is_simulated": args.no_inference,
             "offline_prefill_s": offline_prefill_s,
             "prefill_cost_model": runner.prefill_cost_model,
@@ -892,12 +923,17 @@ def _run(args, articles, experiment_context=None) -> int:
             args.arena_page_tokens if args.kv_backend == "arena" else 0
         ),
         "int8_restore_backend": args.int8_restore_backend,
+        "int8_restore_backend_resolved": resolved_int8_restore_backend,
         "restore_backends_used": sorted(
             {
                 str(row.get("restore_backend_used"))
                 for row in rows
                 if row.get("restore_backend_used") not in {None, "none"}
             }
+        ),
+        "offline_restore_warmup_s": offline_restore_warmup_s,
+        "offline_restore_warmup_amortized_s": (
+            offline_restore_warmup_s / max(1, len(rows))
         ),
         "prefill_is_simulated": args.no_inference,
         "budget_bytes": budget_bytes,
@@ -981,6 +1017,12 @@ def _manifest(args, run_type, runner=None):
         "kv_backend": getattr(args, "kv_backend", "tensor"),
         "arena_page_tokens": getattr(args, "arena_page_tokens", None),
         "int8_restore_backend": getattr(args, "int8_restore_backend", "pytorch"),
+        "int8_restore_backend_resolved": getattr(
+            args, "resolved_int8_restore_backend", None
+        ),
+        "offline_restore_warmup_s": getattr(
+            args, "offline_restore_warmup_s", 0.0
+        ),
         "dtype": getattr(args, "dtype", "float16"),
         "agreement_atol": getattr(args, "resolved_agreement_atol", None),
         "quantization_format": (

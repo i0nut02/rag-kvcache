@@ -52,6 +52,14 @@ implementing one pair-dequantization callable and registering it. Introducing
 dependency-injection containers or a policy class per LRU/LFU/GDSF formula
 would add ceremony without providing a second implementation boundary.
 
+The first end-to-end Triton trace also caught a systems-specific scalability
+bug that an isolated fixed-shape benchmark could not reveal: token-dependent
+`HEAD_STRIDE` was a compile-time specialization, causing a new JIT kernel for
+nearly every article length. It is now runtime-valued and explicitly excluded
+from specialization. One model-geometry compile occurs before the request loop,
+and its cost is reported separately rather than hidden in TTFT. This is why the
+project retains both microbenchmarks and variable-length end-to-end traces.
+
 The cleanup also removes the unused standalone `dequantize` function and
 unused concrete-block imports. Existing factories and bounded heaps were kept;
 rewriting working structures merely to name another design pattern would make

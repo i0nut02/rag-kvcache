@@ -488,9 +488,32 @@ def _run_summaries(
                 "cache_bytes_peak": measured["cache_bytes_peak"],
                 "evictions": measured["evictions"],
                 "dequant_mean_s": measured["dequant_mean_s"],
+                "transfer_mean_s": measured["transfer_mean_s"],
+                "load_mean_s": measured["load_mean_s"],
                 "restore_mean_s": measured["restore_mean_s"],
                 "store_mean_s": measured["store_mean_s"],
                 "policy_mean_s": measured["policy_mean_s"],
+                "metadata_bytes_peak": measured["metadata_bytes_peak"],
+                "useful_bytes_peak": measured["useful_bytes_peak"],
+                "stranded_bytes_peak": measured["stranded_bytes_peak"],
+                "arena_reserved_bytes_peak": measured[
+                    "arena_reserved_bytes_peak"
+                ],
+                "arena_peak_allocated_bytes": measured[
+                    "arena_peak_allocated_bytes"
+                ],
+                "arena_metadata_bytes_peak": measured[
+                    "arena_metadata_bytes_peak"
+                ],
+                "arena_stale_rejections": measured[
+                    "arena_stale_rejections"
+                ],
+                "arena_stranded_bytes_peak": measured[
+                    "arena_stranded_bytes_peak"
+                ],
+                "offline_restore_warmup_s": float(
+                    run_rows[0].get("offline_restore_warmup_s", 0.0)
+                ),
             }
         )
     return output
@@ -832,7 +855,7 @@ def _render_markdown(
         "",
         "## Latency",
         "",
-        "| Workload | Strategy | Storage | Cached TTFT mean/p50/p95 (s) | "
+        "| Workload | Path | Storage | Cached TTFT mean/p50/p95 (s) | "
         "Cache-only speedup "
         "(95% CI) | End-to-end speedup | Cache-only TTFT change |",
         "|---|---|---|---:|---:|---:|---:|",
@@ -844,7 +867,7 @@ def _render_markdown(
             else "n/a"
         )
         lines.append(
-            f"| {row['workload']} | {row['strategy']} / {row['policy']} | "
+            f"| {row['workload']} | {row['label']} | "
             f"{row['storage']} | {row['cached_ttft_mean_s']:.3f} / "
             f"{row['cached_ttft_p50_s']:.3f} / {row['cached_ttft_p95_s']:.3f} | "
             f"{row['cache_only_speedup']:.2f}x "

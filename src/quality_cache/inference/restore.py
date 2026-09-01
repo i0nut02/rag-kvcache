@@ -45,6 +45,28 @@ def resolve_int8_restore_backend(requested: str, device) -> str:
     return "pytorch"
 
 
+def warmup_int8_restore_backend(
+    requested: str,
+    *,
+    device,
+    dtype,
+    kv_heads: int,
+    head_dim: int,
+) -> tuple[str, float]:
+    """Resolve a backend and move optional Triton JIT cost out of TTFT."""
+    backend = resolve_int8_restore_backend(requested, device)
+    if backend != "triton":
+        return backend, 0.0
+    from .triton_restore import warmup_triton_restore
+
+    return backend, warmup_triton_restore(
+        device=device,
+        dtype=dtype,
+        kv_heads=kv_heads,
+        head_dim=head_dim,
+    )
+
+
 def restore_blocks(
     blocks: list[StoredBlock],
     *,
