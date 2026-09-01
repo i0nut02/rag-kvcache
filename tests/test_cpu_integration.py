@@ -13,8 +13,8 @@ except (ImportError, RuntimeError):
 from src.quality_cache.caches import CacheKey, StoredKV, new_prefix_cache
 from src.quality_cache.data import QualityQuestion, QualityRequest
 from src.quality_cache.inference.model import QualityModelRunner
+from src.quality_cache.inference.restore import restore_blocks
 from src.quality_cache.inference.tensors import (
-    restore_blocks,
     store_blocks,
     to_legacy,
     to_model_cache,

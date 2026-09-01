@@ -281,9 +281,10 @@ hashes are in [`qwen_0.5b_results.md`](qwen_0.5b_results.md).
 - The original request-level bootstrap intervals capture within-trace request
   variation; the three-run ranges capture a small amount of system variation.
   Neither is a multi-GPU confidence interval.
-- The frozen INT8 results predate separate restore-stage instrumentation, and
-  the arena/Triton implementation has not yet been measured on CUDA. No speed
-  claim for either new backend is made in this document.
+- The frozen INT8 results predate separate restore-stage instrumentation. A
+  synthetic CUDA restore microbenchmark now shows a 1.149x--1.276x Triton
+  restore speedup, but the matched arena/Triton end-to-end matrix is not yet
+  complete. This is kernel-path evidence, not a TTFT claim.
 - The calibrated no-inference prefill model is not observed TTFT and cannot be
   used as if it were a CUDA timing result.
 
@@ -293,9 +294,8 @@ The empirical 1.5B baseline and matched-working-set 0.5B scale check are now
 sufficient for the course report. Remaining experiments should be narrow
 rather than another full cross-product:
 
-1. microbenchmark the implemented PyTorch and Triton restore paths by tokens
-   and bytes;
-2. rerun only segmented, document FP16, and document INT8 end-to-end paths;
+1. archive the completed restore microbenchmark with its hardware manifest;
+2. run the selected arena/Triton smoke and 100-request end-to-end paths;
 3. update the final figures with three-run timing summaries and present INT8 as
    a Pareto tradeoff rather than a lossless optimization.
 

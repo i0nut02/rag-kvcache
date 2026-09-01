@@ -1,9 +1,9 @@
 # Document KV arena and Triton restore
 
 This phase adds two optional physical backends without changing the frozen
-Qwen2.5-1.5B or Qwen2.5-0.5B claims. The implementation is ready for a new,
-separately identified CUDA confirmation; no arena or Triton speed claim should
-be made until those results are collected.
+Qwen2.5-1.5B or Qwen2.5-0.5B claims. The restore-only CUDA microbenchmark is
+complete and shows a Triton benefit. The matched end-to-end arena/Triton matrix
+is still required before making a TTFT claim for either backend.
 
 ## Relationship to SGLang
 
@@ -29,9 +29,10 @@ This repository has no concurrent scheduler or retrieval stage, and each
 request already supplies exactly one article. Its corresponding layers are:
 
 ```text
-DocumentPrefixCache        logical ownership and LRU/LFU/FIFO/GDSF eviction
-ArenaHandle + allocator    page ownership, generations, allocation/release
-KVArena slabs              preallocated per-layer K/V device tensors
+DocumentPrefixCache     logical ownership and LRU/LFU/FIFO/GDSF eviction
+PageAllocator           page ownership, generations, allocation/release
+ArenaHandle             immutable document allocation capability
+KVArena slabs           preallocated per-layer K/V device tensors
 ```
 
 A document remains one logical entry even when its physical allocation spans
@@ -118,6 +119,51 @@ Per-request timing now records:
 The component timers are synchronized measurements, but Python dispatch means
 they need not sum exactly to `restore_s`.
 
+## Restore microbenchmark result
+
+The first Qwen2.5-1.5B synthetic-geometry run used model revision
+`989aa7980e4cf806f80c7fef2b1adb7bc71aa306`, 28 layers, two KV heads,
+head dimension 128, FP16 output, seed 42, two warm-ups, and ten measured
+repetitions. Both requested backends resolved to themselves. The benchmark
+uses schema `quality-int8-restore-benchmark-v1` and result schema
+`quality-kv-v3`.
+
+| Tokens | PyTorch restore | Triton restore | Restore speedup | PyTorch throughput | Triton throughput | Triton p95 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 512 | 6.544 ms | 5.696 ms | 1.149x | 1.045 GiB/s | 1.200 GiB/s | 5.917 ms |
+| 2,048 | 14.842 ms | 11.910 ms | 1.246x | 1.842 GiB/s | 2.296 GiB/s | 12.212 ms |
+| 8,192 | 44.102 ms | 34.572 ms | 1.276x | 2.480 GiB/s | 3.164 GiB/s | 36.935 ms |
+
+The mean restore reductions are 12.96%, 19.76%, and 21.61% as the restored
+prefix grows. The kernel-only dequantization result explains that scaling:
+
+| Tokens | PyTorch dequant | Triton dequant | Dequant speedup | Triton transfer | Transfer share of Triton restore |
+|---:|---:|---:|---:|---:|---:|
+| 512 | 2.353 ms | 1.568 ms | 1.500x | 4.029 ms | 70.73% |
+| 2,048 | 3.403 ms | 1.500 ms | 2.268x | 10.299 ms | 86.48% |
+| 8,192 | 11.134 ms | 1.723 ms | 6.461x | 32.727 ms | 94.66% |
+
+`max_abs_error_vs_pytorch` is exactly zero in all six rows. Peak CUDA
+allocation is also slightly lower for Triton: 49.03 versus 49.78 MiB at 512
+tokens, 196.03 versus 199.03 MiB at 2,048, and 784.03 versus 796.03 MiB at
+8,192.
+
+This supports a narrow claim: the fused Triton dequantization/cast is correct
+for these inputs and improves isolated restore throughput. It does not yet
+show an end-to-end TTFT improvement. At 8,192 tokens the measured transfer is
+94.66% of Triton restore time, so host-to-device movement is now the dominant
+bottleneck. Pinned/asynchronous transfer and overlap are possible future work,
+but require stream-aware lifetime tests and a separate experiment.
+
+These values were transcribed from the supplied benchmark table. The original
+CSV and neighboring manifest, including the CUDA device name and code revision,
+must be retained with the final artifact archive; the hardware fields were not
+present in the table pasted into this repository review. Because the subsequent
+code-quality refactor moved restore orchestration into its own module, run this
+short benchmark once more from the final submitted commit before treating the
+numbers as final report evidence. The existing run remains useful validation of
+the kernel and expected trend.
+
 ## CUDA experiment sequence
 
 After pulling the implementation, run the complete CPU suite and validate the
@@ -130,9 +176,10 @@ python experiments/run_quality.py matrix \
   --profile smoke --show-commands
 ```
 
-Then run the synthetic model-geometry microbenchmark. It excludes model
-weights, warms up Triton compilation, compares every result with the PyTorch
-output, and writes a manifest:
+To reproduce the synthetic model-geometry microbenchmark on the final commit,
+use the following command. It excludes model weights, warms up Triton
+compilation, compares every result with the PyTorch output, and writes a
+manifest:
 
 ```bash
 python experiments/run_quality.py benchmark-restore \
@@ -141,17 +188,22 @@ python experiments/run_quality.py benchmark-restore \
   --tokens 512 2048 8192 \
   --backends pytorch triton \
   --warmup 2 --repeats 10 --seed 42 \
-  --output results/arena_triton/restore_microbenchmark.csv
+  --output results/arena_triton/restore_microbenchmark_final.csv
 ```
 
-Run ten requests to validate allocation, kernel compilation, logits, and GPU
-memory before the 100-request confirmation:
+The next unfinished step is ten requests to validate allocation, kernel
+compilation, logits, and GPU memory before the 100-request confirmation:
 
 ```bash
 python experiments/run_quality.py matrix \
   configs/arena_triton_confirmation.json \
   --profile smoke --execute --resume
+```
 
+Inspect all six smoke summaries first. If allocation, memory, and reference
+checks pass, run the confirmation:
+
+```bash
 python experiments/run_quality.py matrix \
   configs/arena_triton_confirmation.json \
   --profile confirmation --execute --resume

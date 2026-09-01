@@ -94,5 +94,7 @@ arbitrary retrieved-document composition or rapidly changing corpora.
 
 The matched-working-set Qwen2.5-0.5B check is complete and reproduces the main
 cache-only result; its evidence is in
-[`qwen_0.5b_results.md`](qwen_0.5b_results.md). The remaining arena/Triton
-extension and its exit criteria are specified in [`next_steps.md`](next_steps.md).
+[`qwen_0.5b_results.md`](qwen_0.5b_results.md). The Triton restore-only
+microbenchmark is complete, while the arena and end-to-end Triton confirmation
+remain pending; results and exit criteria are in
+[`arena_triton.md`](arena_triton.md) and [`next_steps.md`](next_steps.md).

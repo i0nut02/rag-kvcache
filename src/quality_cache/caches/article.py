@@ -4,7 +4,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..inference.tensors import KVBlock, release_blocks
+from ..inference.kv_types import StoredBlock
+from ..inference.tensors import release_blocks
 
 
 POLICIES = ("lru", "lfu", "fifo", "gdsf")
@@ -26,7 +27,7 @@ class CacheEntry:
     key: CacheKey
     token_count: int
     prefill_cost_s: float
-    blocks: list[Any] = field(default_factory=list)
+    blocks: list[StoredBlock] = field(default_factory=list)
     simulated_bytes: int | None = None
     frequency: int = 1
     inserted_at: int = 0

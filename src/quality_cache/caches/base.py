@@ -6,14 +6,15 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from ..inference.tensors import KVBlock, release_blocks, slice_stored_blocks
+from ..inference.kv_types import StoredBlock
+from ..inference.tensors import release_blocks, slice_stored_blocks
 from .article import CacheKey
 
 
 @dataclass
 class StoredKV:
     token_count: int
-    blocks: list[Any] = field(default_factory=list)
+    blocks: list[StoredBlock] = field(default_factory=list)
     simulated_bytes: int | None = None
 
     @property
@@ -59,7 +60,7 @@ class PrefixLookup:
     requested_tokens: int = 0
 
     @property
-    def blocks(self) -> list[Any]:
+    def blocks(self) -> list[StoredBlock]:
         return [block for payload in self.payloads for block in payload.blocks]
 
     @property

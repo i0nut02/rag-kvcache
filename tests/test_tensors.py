@@ -11,11 +11,13 @@ try:
 except ImportError:
     torch = None
 
-from src.quality_cache.inference.tensors import (
+from src.quality_cache.inference.restore import (
     resolve_int8_restore_backend,
-    resolve_storage_device,
     restore_blocks,
     restore_blocks_profiled,
+)
+from src.quality_cache.inference.tensors import (
+    resolve_storage_device,
     slice_stored_blocks,
     store_blocks,
     to_legacy,

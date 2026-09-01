@@ -11,10 +11,10 @@ from ..prompt import PROMPT_VERSION, encode_parts
 from ..schema import INFERENCE_TIMING_SCOPE, RESULT_SCHEMA_VERSION
 from .context import ExperimentContext, TokenizationContext, TokenizedPrompt
 from .arena import KVArena
+from .restore import restore_blocks_profiled
 from .timing import StageTimings
 from .tensors import (
     concatenate_caches,
-    restore_blocks_profiled,
     sequence_length,
     slice_cache,
     store_blocks,

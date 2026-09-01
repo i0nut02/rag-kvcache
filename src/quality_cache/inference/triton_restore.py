@@ -1,7 +1,7 @@
 """Optional fused CUDA INT8 KV dequantization kernel.
 
 The module imports Triton opportunistically. CPU, MPS, and clean environments
-without Triton retain a fully supported PyTorch implementation in tensors.py.
+without Triton retain a fully supported PyTorch implementation in restore.py.
 """
 
 from __future__ import annotations

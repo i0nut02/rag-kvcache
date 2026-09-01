@@ -131,14 +131,19 @@ cache and invalidate the memory-capacity comparison. The architectural mapping
 to SGLang, flags, invariants, and exact CUDA commands are in
 [`arena_triton.md`](arena_triton.md).
 
-The remaining work is empirical rather than another refactor:
+The PyTorch/Triton restore microbenchmark is complete. Triton reduces mean
+restore time by 13.0%--21.6% across 512--8,192 tokens with exact output parity
+in the sampled tensors; transfer dominates the longest restore. The detailed
+table and provenance caveat are in [`arena_triton.md`](arena_triton.md).
 
-1. Run the PyTorch/Triton restore microbenchmark at 512, 2,048, and 8,192
-   tokens.
+The remaining work is empirical:
+
+1. Archive the original restore CSV/manifest and rerun the short benchmark on
+   the final refactored commit so hardware and code provenance are complete.
 2. Run the ten-request six-path smoke matrix and inspect memory plus agreement.
 3. Run the aligned 100-request confirmation only after smoke passes.
-4. Add the resulting arena fragmentation, restore throughput, TTFT, and label
-   tables to the report without replacing the frozen baseline.
+4. Add arena fragmentation, end-to-end restore/TTFT, and label tables to the
+   report without replacing the frozen baseline.
 
 ## Final report sequence
 
@@ -152,5 +157,6 @@ The remaining work is empirical rather than another refactor:
 5. Present INT8 as a memory/latency/accuracy frontier, including both changed
    questions and the restore-timer limitation.
 6. Report the three-run timing medians and ranges.
-7. Add the completed second-model check and, after CUDA execution, the
-   arena/Triton microbenchmark as separately versioned evidence.
+7. Add the completed second-model check and restore microbenchmark as
+   separately versioned evidence; add arena/end-to-end Triton results only
+   after the matched confirmation passes.

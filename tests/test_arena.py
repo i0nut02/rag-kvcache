@@ -75,6 +75,7 @@ class KVArenaTest(unittest.TestCase):
         self.assertEqual(stats["arena_live_allocations"], 1)
         self.assertEqual(stats["arena_pages_free"], 1)
         self.assertEqual(stats["arena_stranded_bytes"], 192)
+        arena.assert_consistent()
 
     def test_allocation_is_deterministic_after_release(self):
         arena = self.make_arena(pages=4)

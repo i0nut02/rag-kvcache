@@ -7,11 +7,13 @@ from .arena import (
     KVArena,
     StaleArenaHandle,
 )
+from .page_allocator import PageAllocator
 
 __all__ = [
     "ArenaCapacityError",
     "ArenaHandle",
     "ArenaKVBlock",
     "KVArena",
+    "PageAllocator",
     "StaleArenaHandle",
 ]

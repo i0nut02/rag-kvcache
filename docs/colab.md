@@ -131,7 +131,9 @@ commit, set allocator configuration before importing Torch, and verify Triton:
 !python -m unittest discover -s tests -q
 ```
 
-First run the restore-only benchmark and ten-request matrix:
+The first restore-only benchmark established the expected Triton trend. Keep
+its CSV and neighboring manifest, then rerun this short command after pulling
+the final refactored commit so the report artifact has exact code provenance:
 
 ```python
 !python experiments/run_quality.py benchmark-restore \
@@ -139,8 +141,12 @@ First run the restore-only benchmark and ten-request matrix:
     --device cuda --dtype float16 \
     --tokens 512 2048 8192 \
     --backends pytorch triton --warmup 2 --repeats 10 --seed 42 \
-    --output results/arena_triton/restore_microbenchmark.csv
+    --output results/arena_triton/restore_microbenchmark_final.csv
+```
 
+Then run the ten-request matrix:
+
+```python
 !python experiments/run_quality.py matrix \
     configs/arena_triton_confirmation.json \
     --profile smoke --execute --resume
