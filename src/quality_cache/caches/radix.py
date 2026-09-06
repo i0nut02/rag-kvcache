@@ -66,6 +66,11 @@ class RadixPrefixCache:
         return root
 
     def lookup(self, key: CacheKey, tokens: list[int]) -> PrefixLookup:
+        """Match a request and record one access per matched edge.
+
+        This is a policy-mutating operation, not an admission/existence check.
+        New nodes start at frequency one; only explicit lookups add hits.
+        """
         self.clock += 1
         node = self._root(key)
         position = 0
@@ -92,10 +97,17 @@ class RadixPrefixCache:
     def insert(
         self, key: CacheKey, tokens: list[int], payload: StoredKV, prefill_cost_s: float
     ) -> bool:
+        """Store KV without recording a second request access.
+
+        Return whether any requested prefix survives admission/eviction, not
+        whether the complete document fits. Reinsertion refreshes recency but
+        does not increment the frequency of already resident edges.
+        """
         if not tokens:
             return False
         self.clock += 1
-        node = self._root(key)
+        root = self._root(key)
+        node = root
         position = 0
         protected: set[int] = set()
         while position < len(tokens):
@@ -122,6 +134,7 @@ class RadixPrefixCache:
             common = _common_prefix(child.tokens, tokens, position)
             if common == child.token_count:
                 child.last_access = self.clock
+                self._refresh_leaf(child)
                 node = child
                 position += common
                 continue
@@ -193,7 +206,10 @@ class RadixPrefixCache:
         self._assert_budget()
         self._maybe_compact_heap()
         self._invalidate_stats()
-        return self.lookup(key, tokens).matched_tokens > 0
+        # Leaf-only eviction cannot strand a descendant: a remaining first
+        # edge guarantees at least one matched token. Do not call lookup here;
+        # that would inflate frequency/recency and slice the payload again.
+        return tokens[0] in root.children
 
     def _evict_leaf(self, protected: set[int] | None = None):
         protected = protected or set()

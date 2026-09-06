@@ -71,6 +71,43 @@ separately, as in the existing backends. Byte-hit rate uses useful matched KV
 bytes and excludes page padding, so allocator fragmentation cannot inflate the
 ratio above one.
 
+### Metadata accounting correction (5 September 2026)
+
+New runs use `quality-kv-v4`. `arena_metadata_bytes` now estimates the Python
+objects reachable from `PageAllocator`: the allocator and handle instances,
+their instance dictionaries, free-page and generation lists, the allocation
+dictionary, page-index/generation tuples, owner strings, keys, and numeric
+values. Each object identity is counted once, including objects shared between
+handles and allocator tables. Released handles retained only by a caller are
+not part of allocator metadata. The linear walk is performed when sampling
+statistics, without changing allocation, eviction, restore, or model forwards.
+
+This is an interpreter-dependent `sys.getsizeof` estimate, **not process RSS**
+or exclusively owned memory. It excludes class/module objects, Python heap
+fragmentation, tensor wrappers/slabs, transient restored KV, and L0. Document
+index metadata retains its existing separate estimate. For arena runs:
+
+```text
+metadata_bytes = document_index_estimate + arena_metadata_bytes
+cache_footprint_bytes = arena_reserved_bytes + metadata_bytes
+```
+
+The footprint therefore remains an estimate of selected device storage plus
+host bookkeeping, not a total GPU allocation or whole-process footprint.
+Metadata does not reduce the device tensor budget. Summaries retain the input
+schema and reject mixed versions, so re-analyzing an old archive cannot relabel
+its shallow metadata as corrected accounting.
+
+The frozen v3 results below used shallow arena metadata: list/dictionary
+containers and handle headers, but not their nested objects. Those metadata
+and metadata-inclusive footprint values are underestimated and must not be
+compared directly with v4 values. Their tensor bytes, hit rates, TTFT, and
+accuracy remain historical evidence; this reporting correction does not
+invalidate them. No new inference run is required to preserve that evidence.
+For new measurements use fresh outputs and same-version references; do not
+resume a pre-v4 matrix or manually relabel old JSONLs. Reproduce the exact
+frozen suite with its recorded code revision instead.
+
 This is an allocator experiment on top of the standard Transformers attention
 path, not a page-table-aware attention engine. On a hit, arena pages are still
 assembled into a transient contiguous legacy cache before the model forward.
@@ -192,7 +229,7 @@ startup qualification below.
 | Reserved slab bytes | 3.999 GiB | 3.999 GiB |
 | Peak live allocated bytes | 3.996 GiB | 3.999 GiB |
 | Peak stranded tail bytes | 23.54 MiB | 114.35 MiB |
-| Arena metadata peak | 37.80 KiB | 10.07 KiB |
+| Legacy shallow arena metadata peak (v3) | 37.80 KiB | 10.07 KiB |
 | Peak live documents | 26 | 26 |
 | Allocations / releases | 81 / 56 | 83 / 58 |
 | Stale-handle rejections | 0 | 0 |
@@ -252,8 +289,10 @@ short one-shot job.
 
 ## CUDA experiment sequence
 
-The final evidence is frozen, so these commands are for reproduction on a
-fresh CUDA runtime rather than required follow-up work. First validate the
+The final evidence is frozen. On the current code these commands create a new
+v4 suite, not an exact reproduction of the historical metadata. Use a fresh
+output directory with no pre-v4 results or references (see the accounting note
+above); this is optional, not required follow-up work. First validate the
 implementation; the CUDA test checks two token lengths against PyTorch and the
 CPU suite exercises allocator lifetime and fallback behavior:
 
@@ -309,5 +348,5 @@ final CSVs, figures, hashes, and machine provenance are in
 - Require FP16 arena labels to agree with the segmented reference. For INT8,
   report label mismatches, maximum score delta, and accuracy delta rather than
   claiming numerical equivalence.
-- Do not merge these rows with schema-v2 archives. They use result schema v3
-  and new backend provenance fields.
+- Do not merge the frozen schema-v3 rows with v2 archives or corrected v4
+  accounting. Preserve their original code and schema provenance.

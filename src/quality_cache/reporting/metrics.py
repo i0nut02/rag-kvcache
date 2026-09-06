@@ -22,6 +22,12 @@ def percentile(values: list[float], probability: float) -> float:
 
 def summarize(rows: Iterable[dict[str, Any]], *, cold_requests: int = 0) -> dict[str, Any]:
     rows = list(rows)
+    versions = {row.get("result_schema_version") for row in rows}
+    if len(versions) > 1:
+        raise ValueError("refusing to summarize missing or mixed result schemas")
+    # Historical rows must retain their accounting version, not acquire the
+    # current schema merely because an old archive is being summarized again.
+    version = next(iter(versions), None) or RESULT_SCHEMA_VERSION
     hits = [bool(row["cache_hit"]) for row in rows]
     hit_ratios = [
         float(row.get("cache_hit_ratio", float(row["cache_hit"]))) for row in rows
@@ -80,7 +86,7 @@ def summarize(rows: Iterable[dict[str, Any]], *, cold_requests: int = 0) -> dict
     labels = [row for row in rows if row.get("gold_label") is not None and row.get("predicted_label")]
     hard = [row for row in labels if row.get("difficult")]
     result = {
-        "result_schema_version": RESULT_SCHEMA_VERSION,
+        "result_schema_version": version,
         "requests": len(rows),
         "distinct_articles": len(
             {row.get("article_id") for row in rows if row.get("article_id") is not None}

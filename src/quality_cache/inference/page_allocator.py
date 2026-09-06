@@ -167,12 +167,6 @@ class PageAllocator:
             )
 
     def stats(self) -> dict[str, int | str]:
-        metadata_bytes = (
-            sys.getsizeof(self._free_pages)
-            + sys.getsizeof(self._page_generations)
-            + sys.getsizeof(self._allocations)
-            + sum(sys.getsizeof(handle) for handle in self._allocations.values())
-        )
         return {
             "kv_backend": "arena",
             "arena_page_tokens": self.page_tokens,
@@ -182,7 +176,7 @@ class PageAllocator:
             "arena_reserved_bytes": self.reserved_bytes,
             "arena_free_bytes": self.reserved_bytes - self.live_allocated_bytes,
             "arena_peak_allocated_bytes": self.peak_allocated_bytes,
-            "arena_metadata_bytes": metadata_bytes,
+            "arena_metadata_bytes": self._metadata_bytes(),
             "arena_allocations": self.allocations,
             "arena_releases": self.releases,
             "arena_stale_rejections": self.stale_rejections,
@@ -191,6 +185,35 @@ class PageAllocator:
                 self.live_allocated_bytes - self.live_useful_bytes
             ),
         }
+
+    def _metadata_bytes(self) -> int:
+        """Estimate reachable allocator bookkeeping, deduplicated by identity.
+
+        Include the allocator/handle objects and their instance dictionaries,
+        containers, keys, owner strings, and numeric values. Shared objects
+        (e.g. generation integers and allocation IDs) are counted only once.
+        Only instance data is traversed: no classes, tensor slabs, cache entries,
+        or handles retained solely by callers after release. This is a Python
+        object-size estimate, not exclusive ownership, allocator overhead, or
+        process RSS. The O(pages + handles) walk runs only when sampling stats.
+        """
+        seen: set[int] = set()
+
+        def size(value) -> int:
+            identity = id(value)
+            if identity in seen:
+                return 0
+            seen.add(identity)
+            total = sys.getsizeof(value)
+            if isinstance(value, dict):
+                total += sum(size(key) + size(item) for key, item in value.items())
+            elif isinstance(value, (list, tuple)):
+                total += sum(size(item) for item in value)
+            elif isinstance(value, (PageAllocator, ArenaHandle)):
+                total += size(vars(value))
+            return total
+
+        return size(self)
 
     def assert_consistent(self) -> None:
         """Run the exhaustive page-ownership audit used by tests/debugging."""

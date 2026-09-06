@@ -72,6 +72,12 @@ frozen baseline results. Their SGLang-inspired design, completed matched
 comparison, and reproduction runbook are in
 [docs/arena_triton.md](docs/arena_triton.md).
 
+New results use `quality-kv-v4` for corrected, identity-deduplicated arena
+metadata accounting. Saved v3 arena metadata/metadata-inclusive footprints are
+shallow estimates; timing, tensor bytes, and accuracy evidence is unchanged.
+Use fresh outputs and same-version references for new runs, not `--resume`
+into a legacy matrix. See the [accounting note](docs/arena_triton.md#metadata-accounting-correction-5-september-2026).
+
 The model scores the next-token probability of A/B/C/D. If any label is not a
 single token, it falls back to full option-sequence likelihood.
 
@@ -110,6 +116,14 @@ checkpointed all-2,086-question workflow is available directly as
 [`notebooks/full_dev_confirmation_colab.ipynb`](notebooks/full_dev_confirmation_colab.ipynb)
 or through
 [Open in Colab](https://colab.research.google.com/github/i0nut02/rag-kvcache/blob/main/notebooks/full_dev_confirmation_colab.ipynb).
+
+For the optional timing-repeatability check **after the simulation shortlist**,
+use [`strategy_repetitions_colab.ipynb`](notebooks/strategy_repetitions_colab.ipynb).
+It compares document, fixed-block-256 and radix at 1,000 queries/run, with three
+repetitions, seed 42, LRU and 4 GiB GPU FP16. It targets roughly 7–9 hours and
+enforces a ten-hour benchmark window, rather than repeating the full matrix.
+See [the bounded protocol](docs/strategy_repetitions.md) for checkpoint and
+partial-result handling. This experiment is prepared, not yet measured.
 
 `run` performs real inference by default. Add `--no-inference` to load only the
 tokenizer and model configuration, calculate the exact 1.5B KV geometry, and

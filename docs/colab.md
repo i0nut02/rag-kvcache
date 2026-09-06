@@ -177,6 +177,22 @@ Keep the frozen 100- and 300-request results unchanged until this complete
 suite passes analysis. The longer run is an additional evidence layer, not a
 silent replacement for earlier artifacts.
 
+## Optional: repeat only the shortlisted strategy timings (ten-hour cap)
+
+Use [strategy_repetitions_colab.ipynb](../notebooks/strategy_repetitions_colab.ipynb)
+for the bounded follow-up to the simulation-selected comparisons. It schedules
+1,000 queries × 3 repetitions × document/fixed-block-256/radix × random/Zipf,
+plus two single correctness references: 20,000 requests, approximately 7–9
+hours, with a persistent ten-hour benchmark deadline. This is not a rerun of
+the no-inference matrix. No GPU measurements from this new protocol exist yet.
+
+Run its setup, ten-request smoke, then the six numbered groups. The notebook
+uses new processes, validates resume receipts, downloads checkpoints without
+Drive and produces run-level mean/**p90** comparisons. A bare `matrix --execute`
+does not apply its wall-clock cap. See [the exact protocol and timeout
+behavior](strategy_repetitions.md), including partial-group exclusion and the
+need to disconnect the Colab runtime yourself after the benchmark ends.
+
 ## 6. Run the arena and Triton phase
 
 The optional arena and corrected Triton comparison is complete; reproduce it

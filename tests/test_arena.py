@@ -154,6 +154,20 @@ class KVArenaTest(unittest.TestCase):
         self.assertEqual(stats["arena_live_allocations"], 1)
         self.assertEqual(stats["useful_bytes"], 192)
         self.assertEqual(stats["stranded_bytes"], 64)
+        allocator_metadata = arena.stats()["arena_metadata_bytes"]
+        self.assertEqual(stats["arena_metadata_bytes"], allocator_metadata)
+        self.assertEqual(
+            stats["metadata_bytes"],
+            cache.cache.stats()["metadata_bytes"] + allocator_metadata,
+        )
+        self.assertEqual(
+            stats["cache_footprint_bytes"],
+            stats["arena_reserved_bytes"] + stats["metadata_bytes"],
+        )
+        # Free slab pages are still reserved; host metadata must not consume
+        # the device tensor budget or be added twice to the footprint.
+        self.assertEqual(stats["cache_bytes"], 256)
+        self.assertEqual(stats["arena_reserved_bytes"], 512)
         match = cache.lookup(cache_key("b"), list(range(3)))
         self.assertEqual(match.stored_bytes, 256)
         self.assertEqual(match.useful_bytes, 192)

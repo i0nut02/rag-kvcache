@@ -182,6 +182,18 @@ would be:
 Each would require a new protocol and should not be folded silently into the
 frozen evidence.
 
+## Prepared optional check: shortlisted strategy repeatability
+
+The simulation-first selection is retained. To test small organization-level
+timing differences without another full matrix, the new
+[bounded Colab notebook](../notebooks/strategy_repetitions_colab.ipynb) schedules
+three repetitions of 1,000-query random/Zipf traces for document, fixed-block-256
+and radix, holding LRU, seed 42 and 4 GiB GPU FP16 constant. Two fresh segmented
+references are used once for correctness. Estimated inference cost is 7–9
+hours, with a ten-hour benchmark deadline. This is prepared, **not measured**;
+it does not change the frozen report tables. See
+[the protocol](strategy_repetitions.md) for scope and partial-result caveats.
+
 ## Final report sequence
 
 1. Define repeated stable-document QA and distinguish it from open-corpus RAG.

@@ -1,9 +1,27 @@
 import unittest
 
 from src.quality_cache.reporting import summarize
+from src.quality_cache.schema import RESULT_SCHEMA_VERSION
 
 
 class MetricsTest(unittest.TestCase):
+    def test_summary_preserves_metadata_accounting_schema(self):
+        for version in ("quality-kv-v3", RESULT_SCHEMA_VERSION):
+            with self.subTest(version=version):
+                summary = summarize([
+                    {"cache_hit": False, "result_schema_version": version}
+                ])
+                self.assertEqual(summary["result_schema_version"], version)
+
+    def test_summary_rejects_mixed_metadata_accounting_schemas(self):
+        for legacy in ("quality-kv-v3", None):
+            with self.subTest(legacy=legacy):
+                with self.assertRaisesRegex(ValueError, "mixed result schemas"):
+                    summarize([
+                        {"cache_hit": False, "result_schema_version": legacy},
+                        {"cache_hit": False, "result_schema_version": RESULT_SCHEMA_VERSION},
+                    ])
+
     def test_arena_capacity_and_fragmentation_metrics_are_aggregated(self):
         rows = [
             {

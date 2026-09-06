@@ -1,0 +1,231 @@
+{
+  "command": "matrix",
+  "matrix_type": "selected-timing-repetitions",
+  "dataset": "data/quality-v1.0.1/QuALITY.v1.0.1.htmlstripped.dev",
+  "split": "dev",
+  "verify_counts": true,
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "model_revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+  "tokenizer": "Qwen/Qwen2.5-1.5B-Instruct",
+  "device": "cuda",
+  "dtype": "float16",
+  "no_inference": false,
+  "output_root": "results/strategy_repetitions",
+  "seed": 42,
+  "budget_mb": 4096,
+  "block_tokens": 256,
+  "agreement_atol": 0.0625,
+  "progress_every": 50,
+  "profiles": {
+    "smoke": {
+      "limit": 10
+    },
+    "confirmation": {
+      "limit": 1000
+    }
+  },
+  "runs": [
+    {
+      "name": "reference_random_segmented",
+      "repetition": 0,
+      "workload": "random",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "group": 1
+    },
+    {
+      "name": "rep1_random_document",
+      "repetition": 1,
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "reference_run": "reference_random_segmented",
+      "group": 1
+    },
+    {
+      "name": "rep1_random_fixed_block",
+      "repetition": 1,
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "reference_run": "reference_random_segmented",
+      "group": 1
+    },
+    {
+      "name": "rep1_random_radix",
+      "repetition": 1,
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "radix",
+      "reference_run": "reference_random_segmented",
+      "group": 1
+    },
+    {
+      "name": "reference_zipf_segmented",
+      "repetition": 0,
+      "workload": "zipf",
+      "policy": "none",
+      "baseline_mode": "segmented",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "group": 2
+    },
+    {
+      "name": "rep1_zipf_document",
+      "repetition": 1,
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "reference_run": "reference_zipf_segmented",
+      "group": 2
+    },
+    {
+      "name": "rep1_zipf_fixed_block",
+      "repetition": 1,
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "reference_run": "reference_zipf_segmented",
+      "group": 2
+    },
+    {
+      "name": "rep1_zipf_radix",
+      "repetition": 1,
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "radix",
+      "reference_run": "reference_zipf_segmented",
+      "group": 2
+    },
+    {
+      "name": "rep2_zipf_fixed_block",
+      "repetition": 2,
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "reference_run": "reference_zipf_segmented",
+      "group": 3
+    },
+    {
+      "name": "rep2_zipf_radix",
+      "repetition": 2,
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "radix",
+      "reference_run": "reference_zipf_segmented",
+      "group": 3
+    },
+    {
+      "name": "rep2_zipf_document",
+      "repetition": 2,
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "reference_run": "reference_zipf_segmented",
+      "group": 3
+    },
+    {
+      "name": "rep2_random_fixed_block",
+      "repetition": 2,
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "reference_run": "reference_random_segmented",
+      "group": 4
+    },
+    {
+      "name": "rep2_random_radix",
+      "repetition": 2,
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "radix",
+      "reference_run": "reference_random_segmented",
+      "group": 4
+    },
+    {
+      "name": "rep2_random_document",
+      "repetition": 2,
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "reference_run": "reference_random_segmented",
+      "group": 4
+    },
+    {
+      "name": "rep3_random_radix",
+      "repetition": 3,
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "radix",
+      "reference_run": "reference_random_segmented",
+      "group": 5
+    },
+    {
+      "name": "rep3_random_document",
+      "repetition": 3,
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "reference_run": "reference_random_segmented",
+      "group": 5
+    },
+    {
+      "name": "rep3_random_fixed_block",
+      "repetition": 3,
+      "workload": "random",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "reference_run": "reference_random_segmented",
+      "group": 5
+    },
+    {
+      "name": "rep3_zipf_radix",
+      "repetition": 3,
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "radix",
+      "reference_run": "reference_zipf_segmented",
+      "group": 6
+    },
+    {
+      "name": "rep3_zipf_document",
+      "repetition": 3,
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "document",
+      "reference_run": "reference_zipf_segmented",
+      "group": 6
+    },
+    {
+      "name": "rep3_zipf_fixed_block",
+      "repetition": 3,
+      "workload": "zipf",
+      "policy": "lru",
+      "storage": "accelerator-fp16",
+      "cache_strategy": "fixed-block",
+      "reference_run": "reference_zipf_segmented",
+      "group": 6
+    }
+  ],
+  "benchmark_limit_hours": 10,
+  "selection_basis": "108-run no-inference test matrix; fixed-block sensitivity and selected dev inference. Repeat only organization/LRU/FP16 timing, not the grid."
+}
