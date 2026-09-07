@@ -1,125 +1,175 @@
-# Report blueprint
+# Course-report companion
 
-The consolidated measured results, decisions, and artifact hashes are in
-[`results.md`](results.md). This page defines how those results should be
-structured in the final paper.
+The submission draft is [`../report/main.tex`](../report/main.tex). It uses the
+official DLAI 2025/2026 LaTeX style and has two deliberately separated parts:
 
-## Scope and research questions
+1. a two-page scientific body for a single-student submission;
+2. the mandatory AI-use statement and references.
 
-QuALITY is document-grounded multiple-choice QA rather than open-corpus RAG.
-This project studies a controlled deployment pattern: many requests arrive for a
-bounded, stable long-document collection. HotpotQA is mentioned only as
-motivation for rejecting low-reuse workloads; its data and old measurements are
-not part of the evaluation.
+Timing repetitions, correctness details, arena/Triton evidence and
+reproduction records remain in the linked files under `docs/generated/`.
 
-The report answers seven questions:
+The consolidated result source remains [`results.md`](results.md). Full-dev
+tables, figures, analysis metadata, and original run manifests are included in
+[`generated/full_dev_confirmation`](generated/full_dev_confirmation/README.md).
 
-1. Does exact article-prefix reuse lower time to first token?
-2. Under which request orderings and budgets do eviction policies differ?
-3. Does INT8 increase useful capacity without material label or accuracy loss?
-4. When is offline precomputation amortized by repeated questions?
-5. When does document-aware atomic caching outperform generic fixed-block or
-   radix-prefix caching?
-6. Does preallocating a document-owned KV arena improve the current execution
-   path, or only strengthen memory ownership and accounting?
-7. Does a fused Triton kernel improve CPU-INT8 restoration after transfer and
-   one-time compilation are accounted for?
+## Meaning of the comparisons
 
-## Experimental protocol
+Document, fixed-block, and radix are local implementations using the same
+Transformers runner. The block organization is inspired by vLLM, and the
+longest-prefix lookup by SGLang. Neither production engine is executed: their
+schedulers, continuous batching, and specialized attention kernels are outside
+the comparison. Results therefore characterize this repository's implementations.
 
-Use only the QuALITY v1.0.1 HTML-stripped test file for the configured matrix.
-Merge the two raw writer records for each article and retain all 2,128 questions.
-Because test labels are withheld, treat these runs strictly as label-free cache
-traces and do not report accuracy or QuALITY-hard accuracy from them.
+The complete-dev suite has one full timing run per configuration. The reported
+2--6% differences between cache organizations are observed differences in those
+runs. Paired request bootstraps resample aligned requests independently, ignoring
+dependence from shared cache state and repeated Zipf questions; their intervals
+are descriptive and do not establish repeatable strategy rankings. The earlier
+three-run checks cover segmented/document timing on 100 requests, not the full
+fixed-block/radix ranking. The later [strategy repetitions](generated/strategy_repetitions/README.md)
+now add three fresh-process runs per organization/workload on 1,000 requests.
+Fixed-256 takes consistently longer than document, while document/radix
+latency is very similar. The report includes these results in the body and
+links the detailed mean and p90 ranges from the repository; the full-dev table
+keeps its original values and revision. These repetitions use one T4 session,
+so they do not establish full-dev or multi-GPU rankings.
 
-Report grouped, seeded random, and Zipf(1.1) workloads. Use seed 42 for
-synthetic traces. Separate cold start from steady
-state. Compare document, 16-token fixed-block, and radix caches with LRU, LFU,
-and GDSF at 4 and 8 GiB. Fast checks use 10 requests, confirmation runs use
-50, and the full profile uses every test question. The completed sensitivity
-study selects 256-token blocks as the tuned generic inference baseline; retain
-the 16-token result only to explain the block-churn failure mode.
+## Why the title does not say RAG
 
-The completed trace findings and metric interpretation are recorded in
-[`no_inference_results.md`](no_inference_results.md).
+The original proposal was motivated by RAG: if retrieval repeatedly returns the
+same long context, its already-computed KV state could be reused. The specific
+target was requests using two or three documents, with the same combinations
+recurring across questions. A company legal assistant might repeatedly combine
+a statutory provision, an internal policy and a case document; a coding agent
+might revisit a small group of files. These are motivating examples, not
+measured workloads. The report states that a suitable ready-made public
+serving trace was not identified; it does not claim that none exists.
 
-All configured runs use the local Qwen2.5-1.5B-Instruct tokenizer and KV geometry
-in no-inference mode. Compare accelerator-resident FP16 (CUDA or MPS) and
-per-layer/per-KV-head symmetric CPU INT8 accounting. GDSF uses the measured
-prefill-cost calibration.
+The implemented
+benchmark does not contain that retrieval stage. Every QuALITY question already
+supplies its exact target `article_id`, so there is no vector index, top-k search,
+reranking, or retrieval-quality metric.
 
-## Primary results
+This does **not** mean that public RAG or retrieval datasets do not exist. For
+example, [KILT](https://arxiv.org/abs/2009.02252) grounds several
+knowledge-intensive tasks in one Wikipedia snapshot,
+[BEIR](https://arxiv.org/abs/2104.08663) aggregates heterogeneous retrieval
+benchmarks, and [RepoBench](https://arxiv.org/abs/2306.03091) evaluates retrieval
+of cross-file code context. The gap is more specific: these benchmarks were not
+designed as chronological serving traces that jointly preserve repeated request
+order, exact serialized prompts, top-k document order, corpus revisions and
+invalidation, and a KV-memory budget. Those variables determine cache reuse.
+An unordered repeated document set alone is insufficient: exact KV reuse also
+requires the same preceding tokens. A later document's KV depends on earlier
+documents, so independently prefilling each document and concatenating their
+caches would generally change the computation.
 
-Include exactly these primary figures:
+This is an intentional controlled setting rather than a hidden omission. A real
+RAG experiment would mix cache behavior with retrieval-set overlap, passage
+ordering, canonicalization, and retrieval accuracy. The paper therefore studies
+the post-routing inference tier:
 
-1. fractional request hit (`cached prompt tokens / total prompt tokens`),
-   token-weighted hit rate, and byte hit rate versus working-set budget;
-2. TTFT p50/p95 versus actual memory budget;
-3. policy comparison faceted by workload;
-4. FP16/INT8 useful-capacity and cache-footprint tradeoff.
+```text
+known article_id -> stable system + article prefix -> KV lookup/restore
+                 -> question/options suffix       -> A/B/C/D score
+```
 
-Tables should include avoided prefill tokens, lookup/load/transfer/dequantization
-and policy overhead, occupancy/evictions, RSS and MPS/CUDA memory. TTFT, QuALITY
-accuracy, QuALITY-hard accuracy, and label agreement require inference and
-released labels, so they are outside this test-only matrix.
+The resulting claim is narrower and testable: when an upstream component selects
+one stable long document, document boundaries can be useful KV allocation and
+eviction units. Representative target environments include coding agents that
+repeatedly attach a working set of repository files, legal assistants revisiting
+the same contracts or cases, and enterprise assistants over manuals and policies.
+These are deployment motivations, not domains evaluated by the project. The
+paper does not claim end-to-end RAG speedup.
 
-In the selected dev inference suite, each cached run reuses the corresponding
-uncached JSONL through `--reference-jsonl`. This yields full-trace label and
-score agreement without a duplicate forward or a second full-sequence attention
-workspace while the accelerator KV cache is resident. Report both label
-agreement and the distribution/count of FP16 absolute-tolerance violations;
-do not silently discard numerically different but label-identical requests.
+## Report claims and evidence
 
-The final inference table uses segmented execution with no retained article
-KV as the cache-only baseline. The original full one-forward baseline remains a
-separate end-to-end system comparison. The checked-in analysis and figures are
-in
-[`generated/inference_confirmation`](generated/inference_confirmation/results.md):
-document and radix FP16 achieve about `1.19x` cache-only speedup on random
-traffic, document FP16 achieves about `2.19x` on Zipf traffic, and 16-token
-fixed-block caching is slower than the fair control. Three timing repetitions
-refine the document result to median paired speedups of `1.250x` on random and
-`2.194x` on Zipf. The tuned 256-token block reaches `1.16x` and `2.07x` but
-remains slower than the document unit. The 300-request CPU INT8 confirmation
-changes 2/300 labels, reduces accuracy by 0.67 percentage points, and gives a
-`1.569x` mean speedup; present it as a measured Pareto tradeoff.
+| Claim in the two-page body | Evidence boundary |
+|---|---|
+| Document/LRU gives 1.281x random and 2.741x Zipf mean speedups | All 2,086 requests in each aligned Qwen2.5-1.5B dev trace; paired request bootstrap intervals are reported |
+| Document ownership keeps management costs low | Three 1,000-request repetitions find similar document/radix TTFT and lower document metadata/policy cost. Fixed-256 takes a median 1.28% longer on random and 6.54% longer on Zipf, measured relative to document within each pair. |
+| GDSF can benefit skewed traffic | The historical full Zipf row improves mean TTFT by 21.4% over document/LRU; it records a known admission-order variant and was not repeated in the organization study. |
+| INT8 approximately doubles useful capacity | Complete 2,128-request no-inference test traces: INT8 4 GiB nearly matches FP16 8 GiB |
+| INT8 is not lossless | Full random dev: 12/2,086 labels change; full Zipf: 14/911 unique Q&A change after deduplication |
+| Zipf occurrence accuracy is not a quality estimate | The 2,086 arrivals contain only 911 unique Q&A; one beneficial INT8 change repeats 32 times, while deduplicated accuracy falls 3/911 |
+| Radix partial hits can be misleading | Full Zipf: 301 partial occurrences have a one-token median and contribute only 0.004 percentage points of token-weighted reuse |
+| Mean gains do not imply the same p90 gains | Full random/Zipf conditional results show misses still dominate the tail; report p90 values are recalculated from the original timings |
+| The arena is a useful negative result | Aligned 100-request tensor/arena comparison with allocation and stale-handle checks |
+| Triton improves the isolated restore path | Corrected microbenchmark plus 31 matched online hits; startup and transfer are reported separately |
+| The result persists at another scale | Matched-working-set Qwen2.5-0.5B confirmation within the same model family |
 
-Present the arena result as a useful negative systems result. Both page sizes
-preserve all FP16 labels and allocator invariants, but arena-64 and arena-256
-are 11.6% and 9.3% slower than tensor storage because the unmodified
-Transformers attention path reconstructs contiguous legacy caches. The page-
-size comparison still quantifies a real tradeoff: 64-token pages preserve the
-20.31% hit rate with 23.54 MiB tail waste, while 256-token pages reduce store
-and restore overhead at the cost of 114.35 MiB tail waste and an 18.19% hit
-rate.
+The complete-dev suite is now the primary 1.5B evidence. Its 12 JSONLs and
+summaries were audited for alignment, checksums, provenance, byte/token bounds,
+and exact aggregate reproduction. The earlier 100/300-request runs remain only
+for block-size selection, timing repetition, scale, and isolated systems
+follow-ups. Smoke runs are excluded from timing evidence. The curated full-dev
+record is
+[`generated/full_dev_confirmation`](generated/full_dev_confirmation/README.md).
 
-Keep the Triton claim at the measured layer. The corrected kernel gives
-1.137x--1.243x restore speedup in the synthetic microbenchmark with exact
-output parity. On matched online cache hits, dequantization is 3.754x faster
-and complete restore is 1.209x faster. Host transfer remains dominant, and the
-separate 2.671-second warm-up makes Triton slightly slower when amortized over
-only 100 requests. Use the frozen tables and figures in
-[`generated/arena_triton`](generated/arena_triton/README.md); do not present
-the raw 1.4% all-request TTFT difference as an isolated kernel result.
+## Metric and baseline language
 
-## Validity and limitations
+- The main inference table includes mean and p90 TTFT in seconds, alongside
+  mean-based speedup and article-token reuse. The segmented control is shown
+  for both workloads; descriptive intervals, p50 and full tables are linked
+  through the saved result documents.
+  p90 is the 90th percentile of request TTFT, not a confidence interval or the
+  latency of cache hits alone. It was recalculated from the original JSONLs,
+  not estimated from the p95 summaries. Exact values, raw-input hashes and the
+  calculation method are in
+  [report_latency](generated/report_latency/README.md). Historical p95 tables
+  elsewhere in the repository are preserved as originally generated.
+- `article_token_hit_rate` is the primary reuse statistic. It excludes pinned
+  L0 and the uncached question/options suffix.
+- L0 is the stable system prompt, not the query.
+- Atomic document caching has either zero or all article-text tokens; it cannot
+  have a partial article-text hit by design.
+- The primary control is segmented execution without retained article KV. The
+  full one-forward path has a different execution shape and is not the
+  denominator for the cache-only claim.
+- No-inference rows support occupancy, capacity, hit-rate, metadata, insertion,
+  and eviction claims. Their simulated prefill cost is not measured CUDA TTFT.
+- CPU INT8 transfer and dequantization are included in real TTFT. Numerical
+  tolerance violations are distinct from label mismatches.
 
-The document strategy uses one whole-article storage and eviction unit. The
-fixed-block strategy admits and evicts completed blocks independently; the radix
-strategy restores the longest matching token prefix and evicts cold leaves. L0
-is pinned and excluded from capacity for all three. Farthest-next-use is
-simulation-only and is not labeled an upper bound for variable-size articles. Approximate trace
-tokenization is suitable for relative policy sweeps; actual experiments use the
-model tokenizer and measured tensor bytes. CPU transfer and INT8 dequantization
-must remain inside TTFT. Results apply to repeated stable-document QA, not to
-arbitrary retrieved-document composition or rapidly changing corpora.
+## Arena/Triton paragraph: experiment size and source of each number
 
-The matched-working-set Qwen2.5-0.5B check is complete and reproduces the main
-cache-only result; its evidence is in
-[`qwen_0.5b_results.md`](qwen_0.5b_results.md). The arena confirmation and two
-corrected Triton microbenchmark repetitions are also complete. The initial
-token-length-specialized Triton row remains diagnostic history; final claims
-use the runtime-stride, prewarmed replacement. Results, startup accounting, and
-reproduction commands are in [`arena_triton.md`](arena_triton.md), while
-[`next_steps.md`](next_steps.md) distinguishes completed evidence from optional
-future systems work.
+The former “Systems follow-up” paragraph is titled **“Arena and Triton
+experiments (100 requests)”**. It describes completed experiments in this
+repository, not future work or timing results published by SGLang/vLLM. These
+are earlier, separately versioned 100-request random-dev runs, with seed 42,
+Qwen2.5-1.5B, a Tesla T4, and 4 GiB cache budgets. They must not be mistaken
+for measurements over the primary 2,086-request suite.
+
+| Measurement | Population and meaning | Frozen source |
+|---|---|---|
+| Tensor FP16 mean TTFT 1.544 s; arena-64/256 1.723/1.687 s | All 100 requests per run; recalculated p90 is kept in the saved percentile table | [run_summaries.csv](generated/arena_triton/run_summaries.csv), [report percentiles](generated/report_latency/ttft_percentiles.csv) |
+| INT8 restore 37.45 → 30.98 ms; hit TTFT 94.17 → 86.73 ms | The same 31 cache-hit positions in each PyTorch/Triton run; restore includes transfer, dequantization and assembly, whereas TTFT also includes the rest of the request | [triton_comparison.csv](generated/arena_triton/triton_comparison.csv) |
+| Restore speedups 1.137x / 1.167x / 1.243x | Synthetic model-shaped KV at 512 / 2,048 / 8,192 tokens; not QA requests or full-model TTFT | [restore_microbenchmark_runtime_stride.csv](generated/arena_triton/restore_microbenchmark_runtime_stride.csv) |
+| Online mean TTFT 1.438 → 1.418 s; Triton 1.445 s including startup | All 100 requests; the 2.671 s JIT warm-up is added separately. The online difference also contains miss/store timing variation | [triton_comparison.csv](generated/arena_triton/triton_comparison.csv) |
+
+The approximate 1,332-request break-even is calculated as
+`2.67064 / (0.31 * (0.0374503 - 0.0309815))`. It extrapolates the measured
+restore saving at the observed 31% request hit rate; it is not a separately
+executed trace or a guaranteed end-to-end crossover. The linked evidence gives
+the calculation, timing definitions and CSV source names. The
+[provenance record](generated/arena_triton/README.md) identifies measured
+revision `710037420045ebc08a4ccd9d28dc1e8ae8b36420` and links the raw-input
+hashes; none of these numbers are imported from an external inference engine.
+
+## Before submission
+
+1. Fill the author and institutional email placeholders in
+   [`main.tex`](../report/main.tex).
+2. Re-read and personalize the AI-use statement. It must describe the actual
+   final workflow, not merely remain as generated boilerplate.
+3. Build the PDF and verify that the scientific body ends on page 2 without
+   changing the official margins or spacing.
+4. Keep the limitations explicit: QuALITY is not retrieval, test labels are
+   withheld, Zipf repeats only 911 unique Q&A, and current model evidence covers
+   two sizes of one family on one CUDA environment.
+5. Recheck every number against [`results.md`](results.md) and the curated files
+   under [`generated/`](generated/).
+
+Compilation and delivery instructions are in
+[`../report/README.md`](../report/README.md).

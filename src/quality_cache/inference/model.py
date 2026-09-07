@@ -6,12 +6,12 @@ from typing import Any
 
 from ..caches import CacheKey, PrefixCache, StoredKV, new_prefix_cache
 from ..data import QualityRequest
-from ..memory import current_process_rss_bytes, nonnegative_delta
+from ..memory import memory_deltas, model_memory_snapshot
 from ..prompt import PROMPT_VERSION, encode_parts
-from ..schema import INFERENCE_TIMING_SCOPE, RESULT_SCHEMA_VERSION
 from .context import ExperimentContext, TokenizationContext, TokenizedPrompt
 from .arena import KVArena
 from .restore import restore_blocks_profiled
+from .results import scored_request_fields, uncached_cache_fields
 from .timing import StageTimings
 from .tensors import (
     concatenate_caches,
@@ -316,9 +316,7 @@ class QualityModelRunner:
         ttft_s = time.perf_counter() - started
         timings.prefill_s = ttft_s
         return {
-            "result_schema_version": RESULT_SCHEMA_VERSION,
-            "request_id": request.request_id,
-            "article_id": request.article_id,
+            **scored_request_fields(request, score, timings, ttft_s),
             "cache_hit": False,
             "partial_cache_hit": False,
             "partial_article_hit": False,
@@ -342,29 +340,11 @@ class QualityModelRunner:
             ),
             "matched_prefill_tokens": 0,
             "avoided_prefill_tokens": 0,
-            **timings.as_row(),
-            "ttft_s": ttft_s,
-            "timing_scope": INFERENCE_TIMING_SCOPE,
-            "predicted_label": score.label,
-            "label_scores": score.scores,
-            "gold_label": request.question.answer_letter,
-            "difficult": request.question.difficult,
             "uncached_label": score.label,
             "fp16_reference_label": score.label,
             "reference_agreement": True,
             "reference_max_label_logit_delta": 0.0,
-            "cache_bytes": 0,
-            "metadata_bytes": 0,
-            "cache_footprint_bytes": 0,
-            "budget_bytes": 0,
-            "occupancy": 0.0,
-            "root_nodes": 0,
-            "document_tree_nodes": 0,
-            "cached_articles": 0,
-            "insertions": 0,
-            "evictions": 0,
-            "policy": "none",
-            "cache_strategy": "none",
+            **uncached_cache_fields(segmented=False),
             "prefill_cost_model": self.prefill_cost_model,
             "model_weights_loaded": True,
             **self.memory_stats(),
@@ -411,9 +391,7 @@ class QualityModelRunner:
         del transient_prefix
 
         return {
-            "result_schema_version": RESULT_SCHEMA_VERSION,
-            "request_id": request.request_id,
-            "article_id": request.article_id,
+            **scored_request_fields(request, score, timings, ttft_s),
             "cache_hit": False,
             "partial_cache_hit": len(l0_ids) > 0,
             "partial_article_hit": len(l0_ids) > 0,
@@ -437,39 +415,11 @@ class QualityModelRunner:
             ),
             "matched_prefill_tokens": 0,
             "avoided_prefill_tokens": 0,
-            **timings.as_row(),
-            "ttft_s": ttft_s,
-            "timing_scope": INFERENCE_TIMING_SCOPE,
-            "predicted_label": score.label,
-            "label_scores": score.scores,
-            "gold_label": request.question.answer_letter,
-            "difficult": request.question.difficult,
             "uncached_label": None,
             "fp16_reference_label": None,
             "reference_agreement": None,
             "reference_max_label_logit_delta": None,
-            "cache_bytes": 0,
-            "useful_bytes": 0,
-            "shared_bytes": 0,
-            "stranded_bytes": 0,
-            "metadata_bytes": 0,
-            "cache_footprint_bytes": 0,
-            "budget_bytes": 0,
-            "occupancy": 0.0,
-            "root_nodes": 1,
-            "document_tree_nodes": 1,
-            "cached_articles": 0,
-            "cached_documents": 0,
-            "cached_blocks": 0,
-            "radix_nodes": 0,
-            "cached_tokens": 0,
-            "insertions": 0,
-            "evictions": 0,
-            "policy": "none",
-            "cache_strategy": "none",
-            "baseline_mode": "segmented",
-            "inference_path": "segmented-uncached",
-            "l0_reused": True,
+            **uncached_cache_fields(segmented=True),
             "prefill_cost_model": self.prefill_cost_model,
             "model_weights_loaded": True,
             **self.memory_stats(),
@@ -584,9 +534,7 @@ class QualityModelRunner:
         stats = cache.stats()
         memory = self.memory_stats()
         return {
-            "result_schema_version": RESULT_SCHEMA_VERSION,
-            "request_id": request.request_id,
-            "article_id": request.article_id,
+            **scored_request_fields(request, score, timings, ttft_s),
             "cache_hit": hit,
             "partial_cache_hit": partial_hit,
             "partial_article_hit": partial_article_hit,
@@ -613,13 +561,6 @@ class QualityModelRunner:
             ),
             "matched_prefill_tokens": matched,
             "avoided_prefill_tokens": matched,
-            **timings.as_row(),
-            "ttft_s": ttft_s,
-            "timing_scope": INFERENCE_TIMING_SCOPE,
-            "predicted_label": score.label,
-            "label_scores": score.scores,
-            "gold_label": request.question.answer_letter,
-            "difficult": request.question.difficult,
             "uncached_label": uncached_label,
             "fp16_reference_label": uncached_label,
             "reference_agreement": agreement,
@@ -769,37 +710,10 @@ class QualityModelRunner:
             self.torch.cuda.synchronize()
 
     def _raw_memory_stats(self) -> dict[str, int]:
-        values = {"process_rss_bytes": current_process_rss_bytes()}
-        if self.device.type == "mps":
-            values["mps_allocated_bytes"] = int(self.torch.mps.current_allocated_memory())
-            values["mps_driver_bytes"] = int(self.torch.mps.driver_allocated_memory())
-        else:
-            values["mps_allocated_bytes"] = 0
-            values["mps_driver_bytes"] = 0
-        if self.device.type == "cuda":
-            values["cuda_allocated_bytes"] = int(self.torch.cuda.memory_allocated(self.device))
-            values["cuda_reserved_bytes"] = int(self.torch.cuda.memory_reserved(self.device))
-        else:
-            values["cuda_allocated_bytes"] = 0
-            values["cuda_reserved_bytes"] = 0
-        return values
+        return model_memory_snapshot(self.torch, self.device)
 
     def memory_stats(self) -> dict[str, int]:
         values = self._raw_memory_stats()
         baseline = getattr(self, "_memory_baseline", values)
-        values["process_rss_delta_bytes"] = nonnegative_delta(
-            values["process_rss_bytes"], baseline["process_rss_bytes"]
-        )
-        values["mps_allocated_delta_bytes"] = nonnegative_delta(
-            values["mps_allocated_bytes"], baseline["mps_allocated_bytes"]
-        )
-        values["mps_driver_delta_bytes"] = nonnegative_delta(
-            values["mps_driver_bytes"], baseline["mps_driver_bytes"]
-        )
-        values["cuda_allocated_delta_bytes"] = nonnegative_delta(
-            values["cuda_allocated_bytes"], baseline["cuda_allocated_bytes"]
-        )
-        values["cuda_reserved_delta_bytes"] = nonnegative_delta(
-            values["cuda_reserved_bytes"], baseline["cuda_reserved_bytes"]
-        )
+        values.update(memory_deltas(values, baseline))
         return values

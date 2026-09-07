@@ -9,11 +9,14 @@ multiple-choice questions. The reusable model prefix is therefore the exact
 system prompt plus the complete article. Only the question and four options are
 processed on every request.
 
-The completed 1.5B experiments show median paired cache-only speedups of
-`1.250x` on random and `2.194x` on Zipf traffic across three CUDA runs.
-Document-aware caching is faster than tuned 256-token fixed blocks, while CPU
-INT8 trades two label changes in 300 requests for a `1.569x` mean speedup and
-approximately twice the useful capacity. See the
+The complete 2,086-request 1.5B dev experiment gives document/LRU cache-only
+speedups of `1.281x` on random and `2.741x` on Zipf traffic. Document/LRU has
+the lowest observed accelerator-FP16 mean TTFT on random; radix and GDSF have
+lower means on the skewed trace. Small differences need timing replication.
+The compared caches are local implementations inspired by vLLM/SGLang; neither
+production engine is benchmarked. CPU INT8
+approximately doubles useful capacity and gives `1.578x` random speedup, but
+changes 12/2,086 labels. See the
 [consolidated results](docs/results.md) for the full evidence and limitations.
 
 ## Dataset protocol
@@ -123,7 +126,10 @@ It compares document, fixed-block-256 and radix at 1,000 queries/run, with three
 repetitions, seed 42, LRU and 4 GiB GPU FP16. It targets roughly 7–9 hours and
 enforces a ten-hour benchmark window, rather than repeating the full matrix.
 See [the bounded protocol](docs/strategy_repetitions.md) for checkpoint and
-partial-result handling. This experiment is prepared, not yet measured.
+partial-result handling. All 20 confirmation runs completed in 8.27 hours;
+[results and provenance](docs/generated/strategy_repetitions/README.md) show
+very similar document/radix latency and consistently slower fixed-256 timing
+on these traces.
 
 `run` performs real inference by default. Add `--no-inference` to load only the
 tokenizer and model configuration, calculate the exact 1.5B KV geometry, and
@@ -350,4 +356,6 @@ no-inference mode never loads model weights, CPU tensor integration, and a
 20,000-request simulation target. The MPS smoke test skips automatically when
 MPS is absent.
 
-See [docs/report.md](docs/report.md) for the report structure and limitations.
+The official-template course-report draft is in
+[report/main.tex](report/main.tex); [docs/report.md](docs/report.md) records its
+scope and evidence boundary.

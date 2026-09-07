@@ -1,0 +1,223 @@
+\documentclass{article}
+
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{overpic}
+\usepackage{amssymb}
+
+\usepackage[accepted]{dlaiml2026}
+
+\dlaititlerunning{Document-Aware KV Caching for Long-Document QA}
+
+\begin{document}
+
+\twocolumn[
+\dlaititle{Document-Aware KV-Cache Management for Repeated Long-Document Question Answering}
+
+\begin{center}September 2026\end{center}
+
+\begin{dlaiauthorlist}
+\dlaiauthor{[Student name]}{}
+\end{dlaiauthorlist}
+
+\dlaicorrespondingauthor{[Student name]}{[institutional email]}
+
+\vskip 0.3in
+]
+
+\printAffiliationsAndNotice{}
+
+\begin{abstract}
+Answering several questions about one document makes a language model process
+much of the same input repeatedly. I study whether caching each document's
+KV state as one entry can reduce this work and simplify cache management.
+I compare document, fixed-block and radix caches with Qwen2.5-1.5B on
+QuALITY, where each question supplies its article. Over 2,086 requests, document/LRU
+reduces mean time to first token (TTFT) by 21.9\% with random ordering and
+63.5\% with Zipf traffic. CPU INT8 increases capacity but changes 12 answers
+on the random trace. In smaller experiments,
+a page arena does not improve latency in the Transformers runner, while a
+Triton kernel speeds up INT8 restoration by $1.209\times$ after warm-up.
+\end{abstract}
+
+\section{Introduction and scope}
+
+An assistant answering questions about a long article receives nearly the
+same prompt each time: the article stays, while the question changes, and
+Transformers retain attention keys and values during generation
+\cite{vaswani2017attention}. Reusing this state across requests with an exact
+common prefix avoids processing the article again, but keeping every article's
+KV state may not fit in memory, so some entries must be evicted.
+
+I initially proposed studying this in RAG \cite{lewis2020rag}: requests would
+use two or three documents, with the same combinations recurring across
+questions. A company legal assistant might repeatedly need the same statutory
+provisions and internal policy. I did not find a ready-made public serving
+trace with this pattern, and constructing one would require choosing document
+combinations, their order and repetition frequency. I therefore use QuALITY,
+where each question supplies its \texttt{article\_id} \cite{pang2022quality},
+to study reuse of one known document first. Retrieval and multi-document
+prompts are outside this experiment.
+
+\section{Method}
+
+Every prompt uses the same order:
+\[
+ \underbrace{\text{system prefix}}_{L0}\;\Vert\;
+ \underbrace{\text{article}}_{\text{reusable}}\;\Vert\;
+ \underbrace{\text{question + A/B/C/D}}_{\text{request-specific}}.
+\]
+L0 is never evicted or counted as article reuse; questions and options are
+never cached. For $T$ tokens, $L$ layers,
+$H_{kv}$ KV heads, head width $D$ and $b$ bytes per value, the KV size is
+$B_{KV}(T)=2LH_{kv}DTb$. Qwen2.5-1.5B has 28 layers, two KV heads and width
+128: each FP16 token therefore costs 28 KiB \cite{yang2024qwen25}.
+
+All three caches use the same Transformers runner. \textbf{Document} stores and
+evicts whole articles, \textbf{fixed-block} uses 256-token blocks inspired by
+vLLM \cite{kwon2023pagedattention}, and \textbf{radix} uses longest-prefix lookup
+inspired by SGLang \cite{zheng2024sglang}. These are local implementations, not
+benchmarks of either engine. The reported runs use LRU, with GDSF added for Zipf.
+KV tensors use GPU FP16 or symmetric CPU INT8 with per-layer, per-KV-head
+scales. Restoring CPU INT8 entries requires transfer and dequantization, so
+TTFT includes both costs.
+
+To compare how much useful work each cache avoids, I count article tokens:
+\begin{equation}
+ h_{article}=\frac{\sum_i\text{restored article tokens}_i}
+ {\sum_i\text{requested article tokens}_i}.
+\end{equation}
+The no-cache baseline processes the same system, article and suffix stages,
+but discards article KV after every request. Using this segmented baseline
+matters: otherwise, differences between one full forward pass and several
+smaller passes could be mistaken for a benefit of caching.
+
+\section{Experimental protocol}
+
+The data is HTML-stripped QuALITY v1.0.1. Merging the two writer records per
+article preserves all 381 articles and 6,737 questions. Accuracy is measured
+on dev; the test split is used only for cache traces because its labels are
+withheld. With seed 42, random traffic shuffles the questions, while Zipf
+favors popular articles and cycles through their questions. Answers are
+selected by scoring A/B/C/D, with sequence-likelihood
+fallback when a label is not a single token.
+
+I ran twelve Qwen2.5-1.5B-Instruct configurations on a Tesla T4. Each serves
+2,086 aligned requests, with 4 GiB for cached runs. Random visits every dev
+question once; Zipf contains 911 distinct Q\&A, so I also remove duplicates
+when evaluating accuracy. A 108-run no-inference matrix selected the cache
+strategies and policies. Code and experiment details are at
+\url{https://github.com/i0nut02/rag-kvcache}.
+
+\section{Results}
+
+\begin{table}[t]
+\caption{Selected full-dev inference paths: 2,086 requests per path, 4 GiB for cached paths.
+TTFT mean and p90 are in seconds; speedup compares means with the aligned
+segmented control. $h$ excludes L0. Storage is accelerator FP16 except CPU
+INT8/Triton.}
+\label{tab:main}
+\centering
+\begin{footnotesize}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{llrrrr}
+\toprule
+Traffic & Cache & $h_{article}$ & Mean & p90 & Speedup \\
+\midrule
+Random & Segmented & 0.00\% & 1.843 & 2.623 & $1.000\times$ \\
+Random & Document/LRU & 22.94\% & 1.439 & 2.562 & $1.281\times$ \\
+Random & Fixed-256/LRU & 23.15\% & 1.474 & 2.605 & $1.251\times$ \\
+Random & Radix/LRU & 22.77\% & 1.528 & 2.736 & $1.206\times$ \\
+Random & Document/INT8 & 44.67\% & 1.168 & 2.752 & $1.578\times$ \\
+\midrule
+Zipf & Segmented & 0.00\% & 2.208 & 2.670 & $1.000\times$ \\
+Zipf & Document/LRU & 65.38\% & 0.806 & 2.543 & $2.741\times$ \\
+Zipf & Fixed-256/LRU & 65.27\% & 0.863 & 2.566 & $2.558\times$ \\
+Zipf & Radix/LRU & 65.23\% & 0.762 & 2.457 & $2.898\times$ \\
+Zipf & Document/GDSF & 71.46\% & 0.633 & 2.310 & $3.487\times$ \\
+Zipf & Document/INT8 & 81.66\% & 0.455 & 2.207 & $4.851\times$ \\
+\bottomrule
+\end{tabular}
+\end{footnotesize}
+\end{table}
+
+\paragraph*{Cache organization.}
+Table~\ref{tab:main} shows that caching reduces average latency in both
+workloads, with larger savings under Zipf because popular articles are
+requested repeatedly. The choice of cache structure makes a smaller
+difference: document and radix differ by less than 0.5\% in mean TTFT across
+the repeated runs, whereas fixed-256 is slower in every repetition.
+Document's clearer advantage is the amount of bookkeeping it avoids by
+managing each article as one entry, using about 22 KB of metadata compared
+with 5.72 MB for fixed-256 on full random dev.
+
+These comparisons also show why a partial hit is useful only in proportion
+to how much text it restores. On Zipf, the median partial hit covers 6,400
+article tokens with fixed blocks but only one token with radix, so counting
+both as a hit would hide a large difference in avoided prefill work.
+The token-weighted metric captures this distinction, while p90 shows the
+remaining cost of misses, which still require processing most of the article.
+Eviction policy matters when some articles are more popular than others:
+on Zipf, GDSF raises article-token reuse from 65.38\% to 71.46\% and lowers
+mean TTFT by 21.4\% compared with document/LRU.
+
+\paragraph*{INT8 and answer accuracy.}
+INT8 trades numerical precision for enough space to keep more articles,
+with 4 GiB nearly matching the capacity of 8 GiB of FP16 in simulation.
+On random traffic this improves mean latency, though p90 becomes worse,
+and unchanged overall accuracy hides 12 answer changes: six become correct
+and six become wrong. Zipf needs particular care because one helpful change
+is counted 32 times as the same question recurs; counting each unique Q\&A
+once instead gives 496 correct answers for INT8 versus 499 for the baseline,
+out of 911. Across these unique items, 14 labels change: seven correct-to-wrong,
+four wrong-to-correct and three wrong-to-different-wrong. The useful gain is
+therefore cache capacity, not better answer quality, even when aggregate
+accuracy appears unchanged or higher.
+
+\paragraph*{Arena and Triton experiments (100 requests).}
+The arena and Triton experiments illustrate how an optimization of cache
+storage does not necessarily improve the whole runner. In random-dev tests
+with the same model, T4 and seed, both arena page sizes increase latency
+because Transformers still requires contiguous KV tensors to be rebuilt
+before use. Triton has a more direct benefit in INT8 restoration
+\cite{tillet2019triton}: at 31 matched cache-hit positions, complete restore
+falls from 37.45 to 30.98 ms with identical scores to PyTorch INT8.
+That saving applies after warm-up and must first recover the 2.671 s JIT
+startup cost. At the observed 31\% hit rate, the estimated break-even point
+is roughly 1,300 requests, using a simple extrapolation detailed in the
+repository rather than a measured crossover.
+
+Full run-level tables, three-repetition ranges, accuracy breakdowns and the
+arena/Triton microbenchmarks are available in \path{docs/results.md} and
+\path{docs/generated/} at the repository URL above.
+
+\section{Discussion and conclusion}
+
+For this workload, document/LRU combines low management cost with latency
+close to radix, while fixed-block is consistently slower after tuning. The
+evidence covers QuALITY, two Qwen sizes and one T4; full configurations ran
+once and shorter comparisons ran three times on one seed, so they show timing
+variation rather than a general ranking. RAG would also require versioned
+retrieved prompts and separate retrieval timing.
+
+\clearpage
+
+\section{Statement on the use of AI}
+
+The main ideas and initial project structure were my own. I used generative
+AI extensively to develop the implementation: the Triton kernel, experiment
+scripts and much of the supporting test and analysis code were mainly
+AI-written. AI also helped me refine the design, read the literature and
+refactor code.
+
+I used AI to prepare tables and plots from saved results, discuss their
+interpretation, check cache correctness and revise this report. This included
+spotting unfair timing comparisons and planning further tests.
+I reviewed the generated code and checked the tests and saved outputs
+during development.
+
+\bibliography{references.bib}
+\bibliographystyle{dlaiml2026}
+\end{document}

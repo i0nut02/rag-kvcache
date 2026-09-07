@@ -1,34 +1,59 @@
 # Consolidated experimental results
 
-Status: 1 September 2026. This is the report-ready interpretation of the
+Status: 7 September 2026. This is the report-ready interpretation of the
 completed QuALITY trace, inference, block-size, INT8, and timing-repetition
-experiments. Detailed source tables and figures for the first confirmation are
-in [`generated/inference_confirmation`](generated/inference_confirmation/results.md).
+experiments. The primary Qwen2.5-1.5B evidence is now the complete 2,086-request
+dev suite in
+[`generated/full_dev_confirmation`](generated/full_dev_confirmation/README.md).
+Detailed source tables and figures for the earlier confirmation remain in
+[`generated/inference_confirmation`](generated/inference_confirmation/results.md).
 The matched-working-set Qwen2.5-0.5B scale confirmation is reported separately
 in [`qwen_0.5b_results.md`](qwen_0.5b_results.md). Final allocator and Triton
 evidence is frozen in
 [`generated/arena_triton`](generated/arena_triton/README.md).
 
+Implementation note (5 September 2026): the later
+[radix access-accounting fix](code_quality.md#scoped-cleanup-and-radix-access-correction-5-september-2026)
+removes an extra lookup during insertion. Radix values below remain evidence
+for the recorded historical revisions, not measurements of the corrected
+implementation. Document/fixed-block and arena/Triton algorithms are unchanged.
+The full-dev GDSF row also predates a known object-cache ordering correction:
+incoming priority is computed before eviction advances the aging clock. It is
+reported as the behavior of that recorded variant and one Zipf trace, not as a
+canonical or universal GDSF result.
+
 ## Executive result
 
 The evidence supports document-aware KV caching for repeated long-document QA.
-At a 4 GiB accelerator-FP16 budget, atomic document caching reduces mean TTFT
-relative to the fair segmented no-document-cache control by about 19% on the
-random trace and 54% on the Zipf trace. Across three timing repetitions, the
-median paired speedups are `1.250x` and `2.194x`, respectively.
+Over all 2,086 dev requests, a 4 GiB accelerator-FP16 document/LRU cache reduces
+mean TTFT relative to the fair segmented no-document-cache control by 21.9% on
+random traffic (`1.281x`) and 63.5% on Zipf traffic (`2.741x`). The paired
+request-level bootstrap intervals are `[1.250x, 1.313x]` and
+`[2.594x, 2.903x]`.
 
-The generic alternatives do not improve this workload. Radix caching matches
-document-cache latency and useful hit rate but has more metadata and lookup
-work. A 16-token fixed-block cache is slower because of extreme block churn;
-increasing the block to 256 tokens makes it competitive, but it remains 2.7%
-slower than document caching on random traffic and 5.8% slower on Zipf traffic.
-This is the main systems result: known document boundaries are useful semantic
-information for choosing the cache allocation and eviction unit.
+The observed ordering differs by workload. Document/LRU has the lowest measured
+accelerator-FP16 mean TTFT on random traffic: its mean is 2.32% below tuned
+fixed-block-256 and 5.80% below radix at almost the same token hit rate. On the
+seed-42 Zipf trace, radix/LRU is 5.42% faster than document/LRU, while
+document/GDSF retains more hot articles and reaches `3.487x` versus segmented.
+Known document boundaries therefore provide an efficient allocation unit, but
+neither the organization nor the eviction policy is a universal winner.
+These are local implementations on one Transformers runner, inspired by vLLM's
+block organization and SGLang's radix lookup. Neither production engine is
+benchmarked. The later three-repetition, 1,000-request comparison now finds
+very similar document/radix latency and consistently slower fixed-256 timing.
+It uses the corrected radix implementation and is reported separately in
+[the repetition results](generated/strategy_repetitions/README.md); it does not
+turn the historical full-dev ordering into a universal ranking.
 
-CPU INT8 approximately doubles capacity and, over 300 random requests, lowers
-mean TTFT by 36.3% relative to segmented FP16. It agrees on 298/300 labels
-(`99.33%`) but changes two answers that FP16 got right. It is therefore a
-measured memory/latency/quality tradeoff, not a lossless mode.
+CPU INT8 approximately doubles capacity. On the full random permutation it
+reaches a 44.67% article-token hit and `1.578x` mean speedup. It changes 12/2,086
+labels (`99.425%` agreement); six changes help and six hurt, so overall accuracy
+remains exactly 1,210/2,086 while hard accuracy falls by two answers. On Zipf,
+occurrence weighting misleadingly suggests an accuracy increase. Deduplicating
+the 911 sampled Q&A gives 496/911 versus the segmented 499/911, a -0.329-point
+change. INT8 is therefore a measured memory/latency/quality tradeoff, not a
+lossless or accuracy-improving mode.
 
 The optional systems follow-up reaches a more nuanced conclusion. A document-
 owned page arena enforces deterministic lifetime and byte accounting but is
@@ -42,11 +67,11 @@ to amortize.
 
 | Question | Answer from the current evidence |
 |---|---|
-| Does cross-request article-KV reuse reduce TTFT? | Yes: median paired speedup is `1.250x` on random and `2.194x` on Zipf traffic across three runs. |
-| When do policies differ? | Workload locality and capacity dominate. LRU is strongest on the random trace; GDSF helps some constrained Zipf traces, but LRU and GDSF have indistinguishable 100-request FP16 TTFT. |
+| Does cross-request article-KV reuse reduce TTFT? | Yes: the full-dev document/LRU speedup is `1.281x` on random and `2.741x` on Zipf; document/GDSF reaches `3.487x` on the selected Zipf trace. |
+| When do policies differ? | Locality and capacity dominate. LRU is the simple random default; GDSF improves mean TTFT by 21.4% over document/LRU on this skewed trace, but this is one seed rather than a universal ranking. |
 | Does INT8 increase useful capacity? | Yes. INT8 4 GiB closely matches FP16 8 GiB in the full trace simulation. |
-| Is INT8 accuracy-neutral? | No strict lossless claim is justified: 2/300 labels changed and accuracy fell by 0.67 percentage points. |
-| Does document-aware caching beat generic prefix structures? | Yes as a systems tradeoff: it gives the best measured TTFT with tiny metadata while retaining nearly the same useful tokens. |
+| Is INT8 accuracy-neutral? | No strict lossless claim is justified: 12/2,086 random labels and 14/911 unique Zipf Q&A change, even though the full-random net accuracy happens to be zero. |
+| Does document-aware caching beat generic prefix structures? | The later three-run comparison finds very similar document/radix TTFT with much lower document metadata and management time. Fixed-256 is slower in all paired repetitions. The historical full-dev Zipf radix lead is not supported by this current 1,000-request comparison. |
 | Is offline precomputation amortized? | Not yet answered experimentally. Calibrated prefill estimates are available, but no measured online-versus-offline prefill comparison should be claimed. |
 | Does a preallocated page arena improve this Transformers path? | No. It strengthens ownership and fragmentation accounting, but transient contiguous reconstruction makes it slower than tensor storage. |
 | Does Triton improve CPU-INT8 restore? | Yes on the hit path: restore is 1.209x faster and dequantization 3.754x faster. Startup-amortized TTFT is not a win at only 100 requests. |
@@ -65,17 +90,20 @@ The project uses two separate dataset roles and does not mix their metrics:
 | Qwen2.5-0.5B scale confirmation | Dev | 6 aligned runs x 100 | Matched-working-set check of the decisive random and Zipf comparisons |
 | Arena/Triton confirmation | Dev | 6 aligned runs x 100 | Tensor versus page-arena FP16 and PyTorch versus Triton CPU-INT8 restore |
 | Corrected restore microbenchmark | Synthetic model geometry | 2 repetitions x 6 rows | Isolate transfer, dequantization, restore throughput, and numerical parity at 512/2,048/8,192 tokens |
+| Complete 1.5B dev inference | Dev | 12 aligned runs x 2,086 | Primary full-split random accuracy plus random/Zipf latency, strategy, policy, CPU storage, and INT8 correctness |
+| Shortlisted strategy repetitions | Dev | 18 cached runs x 1,000 + 2 references x 1,000 | Three fresh-process repetitions per organization/workload after simulation-based selection; current radix implementation, schema v4 |
 
 All synthetic traces use seed 42. `grouped` keeps questions for one article
 consecutive, `random` shuffles all real questions, and `zipf` samples article
 IDs with exponent 1.1 while cycling through their real questions.
 
-The primary model is `Qwen/Qwen2.5-1.5B-Instruct`. The follow-up manifests
+The primary model is `Qwen/Qwen2.5-1.5B-Instruct`. The complete-dev manifests
 record model revision
 `989aa7980e4cf806f80c7fef2b1adb7bc71aa306`, prompt version
 `quality-mc-v1`, Torch `2.11.0+cu128`, Git revision
-`14cdb7cf1697a822cbdb4b9cfd7f5ffce58275c4`, and QuALITY dev checksum
+`89acf36a603adf7dacd5c8dd0b32a2967f4bbee2`, and QuALITY dev checksum
 `99852d874994078e4b4112b71ceca4dd35aa3a24ff6d3a35c051be25295b4fef`.
+Earlier follow-up and systems archives retain their own recorded revisions.
 
 ## Artifact validation
 
@@ -98,12 +126,21 @@ The downloaded follow-up archive was checked before writing this document:
 Raw result archives remain outside Git, as intended. The complete SHA-256 list
 needed to identify this exact follow-up archive is in the provenance appendix.
 
-These frozen 1.5B artifacts use result schema `quality-kv-v2`. New runs use
-`quality-kv-v3`, which tokenizes once outside the measured model-forward
-interval and reports combined `restore_s` plus a separate `store_s`. It does
-not relabel combined restore time as isolated transfer or dequantization time.
-Do not merge request-level or summary rows across the two schemas; the
-numerical claims on this page remain the historical v2 baseline.
+The complete-dev archive was audited separately: all 12 JSONLs contain 2,086
+contiguous rows, all paired traces and reference checksums align, all stored
+summaries recompute exactly, all byte/token invariants hold, and all runs share
+one dataset/model/prompt/code/hardware provenance. The source zip SHA-256 is
+`204a85e7bf64f52a912f018c65985a0de971d04be77de0d66dfbbb0e2d7ddf33`.
+Exact run hashes and the unique-Q&A Zipf analysis are in
+[`generated/full_dev_confirmation/README.md`](generated/full_dev_confirmation/README.md).
+
+The earlier block-size, 300-request INT8, and timing-repetition artifacts use
+result schema `quality-kv-v2`. The primary complete-dev and final arena/Triton
+archives use `quality-kv-v3`, which tokenizes once outside the measured
+model-forward interval and reports combined `restore_s` plus a separate
+`store_s`. Current code emits `quality-kv-v4` after correcting arena metadata
+semantics. Do not merge request-level or summary rows across schemas; every
+claim here is tied to the explicitly named archive and revision.
 
 The final arena/Triton archive is entirely `quality-kv-v3`. Its six 100-request
 JSONLs have aligned trace positions and a common segmented reference. The
@@ -143,6 +180,104 @@ answer options are request-specific and never included in a hit. Root-only L0
 matches and `partial_prefix_hit_rate` are therefore not evidence of document
 reuse. Atomic document caching has no partial article-text hits by design.
 
+## Complete full-dev inference confirmation
+
+This is now the primary Qwen2.5-1.5B result. Each of the 12 aligned runs serves
+2,086 requests with a 4 GiB cache budget on one Tesla T4. Random is a
+permutation of every labeled dev question; Zipf is a repeated synthetic trace
+of the same length and is used for locality and policy behavior.
+
+| Workload | Path | Mean / p50 / p95 TTFT | Article-token hit | Speedup vs segmented (95% CI) | Label changes |
+|---|---|---:|---:|---:|---:|
+| Random | Segmented FP16 | 1.843 / 2.107 / 2.889 s | 0% | Reference | n/a |
+| Random | Document/LRU accelerator FP16 | 1.439 / 1.598 / 2.828 s | 22.94% | 1.281x [1.250, 1.313] | 0 |
+| Random | Fixed-256/LRU accelerator FP16 | 1.474 / 1.558 / 2.877 s | 23.15% | 1.251x [1.223, 1.281] | 1 |
+| Random | Radix/LRU accelerator FP16 | 1.528 / 1.752 / 2.928 s | 22.77% | 1.206x [1.178, 1.236] | 0 |
+| Random | Document/LRU CPU FP16 | 1.574 / 1.773 / 2.994 s | 22.94% | 1.171x [1.144, 1.200] | 0 |
+| Random | Document/LRU CPU INT8 + Triton | 1.168 / 0.786 / 2.908 s | 44.67% | 1.578x [1.520, 1.643] | 12 |
+| Zipf | Segmented FP16 | 2.208 / 2.323 / 2.733 s | 0% | Reference | n/a |
+| Zipf | Document/LRU accelerator FP16 | 0.806 / 0.068 / 2.716 s | 65.38% | 2.741x [2.594, 2.903] | 0 |
+| Zipf | Fixed-256/LRU accelerator FP16 | 0.863 / 0.185 / 2.742 s | 65.27% | 2.558x [2.437, 2.693] | 3 occurrences / 2 Q&A |
+| Zipf | Radix/LRU accelerator FP16 | 0.762 / 0.068 / 2.546 s | 65.23% | 2.898x [2.745, 3.068] | 0 |
+| Zipf | Document/GDSF accelerator FP16 | 0.633 / 0.065 / 2.539 s | 71.46% | 3.487x [3.280, 3.721] | 0 |
+| Zipf | Document/LRU CPU INT8 + Triton | 0.455 / 0.087 / 2.563 s | 81.66% | 4.851x [4.503, 5.251] | 57 occurrences / 14 Q&A |
+
+The mean result is much stronger than the tail result because a cache miss
+still performs almost the complete article prefill. Random document/LRU lowers
+p95 by only 2.1%; random INT8 is 0.6% worse at p95 despite its 36.6% mean
+reduction. On Zipf, the best accelerator p95 reduction is 7.1%, versus a 71.3%
+mean reduction for GDSF. The report therefore does not translate mean TTFT into
+a blanket tail-latency claim.
+
+The random segmented model answers 1,210/2,086 questions correctly (58.006%)
+and 521/1,065 hard questions correctly (48.920%). Document accelerator FP16,
+radix FP16, and CPU FP16 preserve every label; fixed-256 changes one wrong
+answer into a correct answer. INT8 changes 12 labels: six correct-to-wrong and
+six wrong-to-correct, leaving overall accuracy unchanged while hard accuracy
+falls by 2/1,065 (-0.188 percentage points). Its 903 strict score-tolerance
+violations show that answer agreement does not make the quantizer numerically
+lossless.
+
+### Deduplicated Zipf view
+
+The Zipf trace has 911 unique Q&A from 110 articles. Occurrence-weighted INT8
+accuracy rises by 0.91 points because one baseline-wrong question repeats 32
+times and becomes correct. With one modal prediction per unique Q&A, accuracy
+instead changes from 499/911 (54.775%) to 496/911 (54.446%), and hard accuracy
+from 244/509 to 242/509. The 14 unique answer changes comprise seven
+correct-to-wrong, four wrong-to-correct, and three wrong-to-different-wrong.
+No INT8 accuracy improvement is claimed.
+
+For cache breadth, the report uses `unique-Q&A cache coverage@90%`: the fraction
+of the 911 sampled Q&A for which at least one occurrence restores 90% or more
+of its article. Coverage is 38.86% for document/LRU, 39.41% for fixed-256,
+38.75% for radix, 39.41% for document/GDSF, and 60.04% for CPU INT8. Radix's
+any-positive-reuse coverage is 64.00%, but this is inflated by one-token
+matches; its useful 90%-coverage is not higher. This is cache coverage, not
+retrieval recall, because the request already supplies the article ID.
+
+All exact tables, conditional hit/miss TTFT, partial-prefix distributions,
+resource measurements, correctness accounting, and raw input hashes are in
+[`generated/full_dev_confirmation/README.md`](generated/full_dev_confirmation/README.md).
+
+## Completed strategy repetitions (7 September 2026)
+
+The simulation shortlist was followed by selected inference, then three
+fresh-process runs of each GPU FP16 organization on the first 1,000 requests
+of the seed-42 random and Zipf traces. LRU, a 4 GiB tensor budget and
+Qwen2.5-1.5B are held constant; execution order rotates. All 20 planned runs
+finished in 8.27 hours, including two single segmented correctness references.
+
+| Workload | Cache | Median mean TTFT (min–max), s | Median p90, s | Article-token hit |
+|---|---|---:|---:|---:|
+| Random | Document | 1.731 (1.730–1.735) | 3.015 | 22.00% |
+| Random | Fixed-256 | 1.754 (1.752–1.757) | 3.049 | 22.57% |
+| Random | Radix | 1.735 (1.731–1.735) | 3.020 | 21.99% |
+| Zipf | Document | 0.915 (0.913–0.915) | 2.819 | 63.43% |
+| Zipf | Fixed-256 | 0.973 (0.970–0.975) | 2.834 | 63.40% |
+| Zipf | Radix | 0.917 (0.916–0.917) | 2.819 | 63.44% |
+
+Paired within repetition, fixed-256 takes a median 1.28% longer than document
+on random and 6.54% longer on Zipf, with the same ordering in all three runs.
+Radix takes only 0.02% and 0.19% longer, respectively; p90 ordering changes
+between runs. This supports similar document/radix latency rather than a
+meaningful latency winner. Estimated document metadata is about 0.02 MiB
+versus 5.2–5.5 MiB, and its policy time is much lower. Lower management cost
+is the clearer document advantage on this workload.
+
+All 18,000 cached observations preserve the segmented reference labels.
+Some fixed-block/radix scores exceed the numerical tolerance without changing
+labels. All byte bounds, trace alignment, input hashes and completion checks
+pass; regenerated tables match the downloaded analysis exactly.
+
+These schema-v4 runs use revision `68e7080` with corrected radix accounting.
+The shorter traces and changed environment prevent attributing differences
+from the historical full-dev suite to the fix alone. There is no request
+bootstrap or equivalence test, and the single references are not repeated
+timing controls. Full-dev remains the main accuracy evidence. Exact per-run
+values, p90 ranges, audit and reproduction commands are in
+[generated/strategy_repetitions](generated/strategy_repetitions/README.md).
+
 ## Complete no-inference matrix
 
 The 108-run test matrix establishes capacity behavior over all 2,128 test
@@ -169,9 +304,11 @@ and far more eviction work. Radix shares only about 0.012% of the budget because
 unrelated QuALITY articles rarely have useful common text prefixes. Full trace
 details are in [`no_inference_results.md`](no_inference_results.md).
 
-## Initial real-inference confirmation
+## Earlier real-inference confirmation
 
-The table uses the segmented control as the denominator. The full one-forward
+These smaller runs remain historical sensitivity and repeatability evidence;
+the complete-dev section above supersedes them for primary 1.5B point
+estimates. The table uses the segmented control as the denominator. The full one-forward
 means were 6.072 s on random and 6.241 s on Zipf, but those larger end-to-end
 speedups include an execution-shape difference and are not attributed solely
 to caching.
@@ -284,11 +421,11 @@ Paired cache/control labels match for every request in repetitions 2 and 3.
 
 | Design choice | Selected use | Reason |
 |---|---|---|
-| Document + LRU + accelerator FP16 | Primary implementation | Best simple latency result; atomic ownership; tiny metadata; exact FP16 labels |
-| Fixed-block 256 + LRU | Generic vLLM-like baseline | Competitive after tuning; far less churn than 16/64; still slower than document units |
-| Radix + LRU | Architectural comparison only | Partial prefixes exist, but no useful hit or latency advantage for one known article per request |
-| GDSF | Skewed/constrained policy comparison | Useful in some Zipf capacity traces; no measured TTFT win over LRU in the selected 100 requests |
-| CPU INT8 document cache | Optional capacity mode | Roughly doubles useful capacity and improves median latency, with a measured 2/300 quality cost |
+| Document + LRU + accelerator FP16 | Primary random-traffic implementation | Lowest observed random mean TTFT; atomic ownership; small estimated metadata; exact labels |
+| Fixed-block 256 + LRU | Local baseline inspired by vLLM's block organization | Competitive after tuning, but much more churn and higher observed mean TTFT than document/LRU; no vLLM engine benchmark |
+| Radix + LRU | Architectural comparison | Slower on random, faster than document/LRU on this Zipf trace; most non-full prefixes are only one token |
+| GDSF | Skewed-workload policy | Best accelerator result on this one Zipf trace; workload-dependent, not a universal win |
+| CPU INT8 document cache | Capacity mode | Roughly doubles useful capacity and improves mean/median latency, with 12/2,086 random label changes |
 
 ## Matched-working-set 0.5B confirmation
 
@@ -335,19 +472,27 @@ interpretation are in [`arena_triton.md`](arena_triton.md).
 - QuALITY is document-grounded QA over a bounded stable collection, not
   open-corpus RAG. The request supplies the article ID; there is no retriever in
   this benchmark.
-- Test labels are withheld, so the full matrix supports only cache-trace
-  claims. Accuracy comes from the smaller dev inference traces.
+- Test labels are withheld, so the no-inference test matrix supports only
+  cache-trace claims. Full-split accuracy comes from the 2,086-request random
+  dev inference trace.
 - Dev accuracy values depend on workload sampling and trace length. In
   particular, Zipf repeats questions and is not a full-split accuracy estimate.
 - Only two sizes from the same Qwen2.5 family and one CUDA environment have
   been measured. This supports scale robustness within the family, not a
   cross-architecture or multi-GPU generalization claim.
-- The original request-level bootstrap intervals capture within-trace request
-  variation; the three-run ranges capture a small amount of system variation.
-  Neither is a multi-GPU confidence interval.
+- The full-dev paired request bootstrap resamples aligned requests independently.
+  It ignores dependence from shared cache state and repeated Zipf questions;
+  these descriptive intervals do not establish repeatable strategy rankings.
+  The later three-run comparison covers all three organizations on 1,000-request
+  traces in one T4 session. It supports descriptive timing comparisons on those
+  traces, not statistical significance, full-dev ranking or multiple GPUs.
+- All organizations use local cache implementations on the same Transformers
+  runner. The study does not execute the vLLM or SGLang engines, their schedulers,
+  continuous batching, or specialized attention kernels.
 - The frozen 300-request INT8 result predates separate restore-stage
-  instrumentation. The final 100-request v3 comparison supplies kernel-path
-  timing but is smaller and does not replace that accuracy result.
+  instrumentation. The complete-dev v3 INT8 rows now provide the primary
+  correctness estimate; the matched 100-request systems comparison remains the
+  evidence that isolates PyTorch versus Triton restore.
 - Triton startup is reported separately from online TTFT. The all-request
   PyTorch/Triton difference cannot be assigned entirely to the kernel because
   independent runs also differed in miss/store time.
@@ -356,7 +501,7 @@ interpretation are in [`arena_triton.md`](arena_triton.md).
 
 ## Experimental status and optional future work
 
-The planned 1.5B baseline, matched-working-set 0.5B check, page-arena study,
+The complete 1.5B dev suite, matched-working-set 0.5B check, page-arena study,
 and corrected Triton comparison are complete. No additional experiment is
 required before writing the course report. The original length-specialized
 Triton trace remains diagnostic evidence and is not mixed into final tables.

@@ -6,6 +6,12 @@ This document records the completed label-free cache trace experiment. The
 source artifact is `results/test_matrix/full/all_summaries.csv`; generated
 results remain outside Git and must be archived with the final report.
 
+Historical implementation caveat: these radix rows predate the
+[5 September 2026 access-accounting fix](code_quality.md#scoped-cleanup-and-radix-access-correction-5-september-2026).
+Insertion used to perform an extra policy-mutating lookup. Preserve these rows
+with their original revision; do not combine them with corrected-radix runs or
+use them as measured overhead/rankings of the corrected implementation.
+
 - Code revision: `07bc635` (`Optimize fixed-block cache eviction`)
 - Dataset: QuALITY v1.0.1 HTML-stripped test split
 - Dataset SHA-256: `ca103a953741c56888124a14958460b07941ee40a844914d39e851f1c3099897`
@@ -124,17 +130,22 @@ all useful reuse with dramatically simpler metadata and policy management.
 ## Completed inference follow-up
 
 The labelled QuALITY dev confirmation, fixed-block sensitivity, 300-request
-INT8 comparison, and timing repetitions are complete. Their main conclusions
-are:
+INT8 comparison, timing repetitions, and complete 2,086-request inference
+suite are finished. The complete suite is now primary; the smaller experiments
+remain supporting evidence. Its main conclusions are:
 
-- document FP16 has median paired speedups of `1.250x` on random and `2.194x`
-  on Zipf traffic across three runs;
-- 256 tokens is the selected fixed-block size, but the atomic document cache is
-  still faster;
-- CPU INT8 gives a `1.569x` mean speedup in the 300-request random comparison
-  and changes 2/300 labels.
+- document/LRU FP16 gives `1.281x` random and `2.741x` Zipf mean speedup over
+  all 2,086 requests;
+- 256 tokens is the selected fixed-block size; the historical full-dev row
+  favors document/LRU on random and radix on Zipf, while the later three-run
+  check finds similar document/radix latency and consistently slower fixed-256;
+- CPU INT8 gives `1.578x` random speedup and changes 12/2,086 labels, with no
+  net overall-accuracy change but a two-answer hard-accuracy loss.
 
 See [`results.md`](results.md) for the consolidated tables, metric caveats,
 mismatch details, timing ranges, and follow-up archive hashes. The original
 selected-suite procedure remains in
 [`inference_confirmation.md`](inference_confirmation.md).
+The completed 1,000-request repetitions, selected through this earlier
+simulation/inference sequence, are documented in
+[`generated/strategy_repetitions`](generated/strategy_repetitions/README.md).
