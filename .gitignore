@@ -23,4 +23,4 @@ results_*.csv
 /report/*.fls
 /report/*.log
 /report/*.out
-/report/main.pdf
+/docs/generated/
