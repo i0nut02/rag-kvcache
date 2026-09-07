@@ -6,8 +6,8 @@ This document records the completed label-free cache trace experiment. The
 source artifact is `results/test_matrix/full/all_summaries.csv`; generated
 results remain outside Git and must be archived with the final report.
 
-Historical implementation caveat: these radix rows predate the
-[5 September 2026 access-accounting fix](code_quality.md#scoped-cleanup-and-radix-access-correction-5-september-2026).
+Historical implementation caveat: these radix rows predate the 5 September
+2026 access-accounting fix.
 Insertion used to perform an extra policy-mutating lookup. Preserve these rows
 with their original revision; do not combine them with corrected-radix runs or
 use them as measured overhead/rankings of the corrected implementation.
@@ -147,5 +147,4 @@ mismatch details, timing ranges, and follow-up archive hashes. The original
 selected-suite procedure remains in
 [`inference_confirmation.md`](inference_confirmation.md).
 The completed 1,000-request repetitions, selected through this earlier
-simulation/inference sequence, are documented in
-[`generated/strategy_repetitions`](generated/strategy_repetitions/README.md).
+simulation/inference sequence, are summarized in [`results.md`](results.md).

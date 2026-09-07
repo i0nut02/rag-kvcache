@@ -45,7 +45,6 @@ The Qwen2.5-1.5B empirical baseline is frozen. Before changing experimental
 claims, read:
 
 - `docs/results.md` for consolidated findings and limitations;
-- `docs/next_steps.md` for completed work and optional future extensions;
 - `docs/inference_confirmation.md` for fair-baseline execution;
 - `docs/no_inference_results.md` for the complete trace matrix.
 
@@ -179,8 +178,8 @@ python experiments/run_quality.py matrix configs/cache_strategies.json \
   --profile smoke
 ```
 
-See `README.md`, `docs/colab.md`, and `docs/slurm.md` for full commands. Do not
-launch a costly full matrix merely to validate a local change.
+See `README.md` and the committed notebooks for full commands. Do not launch a
+costly full matrix merely to validate a local change.
 
 ## Change-specific verification
 

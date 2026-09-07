@@ -1,9 +1,9 @@
 # Qwen2.5-0.5B matched-working-set results
 
 Status: 31 August 2026. This document freezes the interpretation and
-provenance of the completed Qwen2.5-0.5B confirmation. The reproduction
-procedure is kept separately in
-[`qwen_0.5b_confirmation.md`](qwen_0.5b_confirmation.md).
+provenance of the completed Qwen2.5-0.5B confirmation. The reproducible matrix
+is encoded in
+[`../configs/qwen_0.5b_confirmation.json`](../configs/qwen_0.5b_confirmation.json).
 
 ## Executive result
 

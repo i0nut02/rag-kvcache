@@ -6,12 +6,9 @@ official DLAI 2025/2026 LaTeX style and has two deliberately separated parts:
 1. a two-page scientific body for a single-student submission;
 2. the mandatory AI-use statement and references.
 
-Timing repetitions, correctness details, arena/Triton evidence and
-reproduction records remain in the linked files under `docs/generated/`.
-
-The consolidated result source remains [`results.md`](results.md). Full-dev
-tables, figures, analysis metadata, and original run manifests are included in
-[`generated/full_dev_confirmation`](generated/full_dev_confirmation/README.md).
+Timing repetitions and correctness details are consolidated in
+[`results.md`](results.md). The committed arena/Triton evidence remains under
+[`generated/arena_triton`](generated/arena_triton/README.md).
 
 ## Meaning of the comparisons
 
@@ -27,8 +24,8 @@ runs. Paired request bootstraps resample aligned requests independently, ignorin
 dependence from shared cache state and repeated Zipf questions; their intervals
 are descriptive and do not establish repeatable strategy rankings. The earlier
 three-run checks cover segmented/document timing on 100 requests, not the full
-fixed-block/radix ranking. The later [strategy repetitions](generated/strategy_repetitions/README.md)
-now add three fresh-process runs per organization/workload on 1,000 requests.
+fixed-block/radix ranking. The later strategy repetitions add three fresh-process
+runs per organization/workload on 1,000 requests.
 Fixed-256 takes consistently longer than document, while document/radix
 latency is very similar. The report includes these results in the body and
 links the detailed mean and p90 ranges from the repository; the full-dev table
@@ -103,9 +100,8 @@ The complete-dev suite is now the primary 1.5B evidence. Its 12 JSONLs and
 summaries were audited for alignment, checksums, provenance, byte/token bounds,
 and exact aggregate reproduction. The earlier 100/300-request runs remain only
 for block-size selection, timing repetition, scale, and isolated systems
-follow-ups. Smoke runs are excluded from timing evidence. The curated full-dev
-record is
-[`generated/full_dev_confirmation`](generated/full_dev_confirmation/README.md).
+follow-ups. Smoke runs are excluded from timing evidence; the report-ready
+aggregates are retained in [`results.md`](results.md).
 
 ## Metric and baseline language
 
@@ -115,10 +111,8 @@ record is
   through the saved result documents.
   p90 is the 90th percentile of request TTFT, not a confidence interval or the
   latency of cache hits alone. It was recalculated from the original JSONLs,
-  not estimated from the p95 summaries. Exact values, raw-input hashes and the
-  calculation method are in
-  [report_latency](generated/report_latency/README.md). Historical p95 tables
-  elsewhere in the repository are preserved as originally generated.
+  not estimated from the p95 summaries. The exact values and calculation method
+  are summarized in [`results.md`](results.md).
 - `article_token_hit_rate` is the primary reuse statistic. It excludes pinned
   L0 and the uncached question/options suffix.
 - L0 is the stable system prompt, not the query.
@@ -143,7 +137,7 @@ for measurements over the primary 2,086-request suite.
 
 | Measurement | Population and meaning | Frozen source |
 |---|---|---|
-| Tensor FP16 mean TTFT 1.544 s; arena-64/256 1.723/1.687 s | All 100 requests per run; recalculated p90 is kept in the saved percentile table | [run_summaries.csv](generated/arena_triton/run_summaries.csv), [report percentiles](generated/report_latency/ttft_percentiles.csv) |
+| Tensor FP16 mean TTFT 1.544 s; arena-64/256 1.723/1.687 s | All 100 requests per run; p90 was recalculated from the saved request timings during report preparation | [run_summaries.csv](generated/arena_triton/run_summaries.csv) |
 | INT8 restore 37.45 → 30.98 ms; hit TTFT 94.17 → 86.73 ms | The same 31 cache-hit positions in each PyTorch/Triton run; restore includes transfer, dequantization and assembly, whereas TTFT also includes the rest of the request | [triton_comparison.csv](generated/arena_triton/triton_comparison.csv) |
 | Restore speedups 1.137x / 1.167x / 1.243x | Synthetic model-shaped KV at 512 / 2,048 / 8,192 tokens; not QA requests or full-model TTFT | [restore_microbenchmark_runtime_stride.csv](generated/arena_triton/restore_microbenchmark_runtime_stride.csv) |
 | Online mean TTFT 1.438 → 1.418 s; Triton 1.445 s including startup | All 100 requests; the 2.671 s JIT warm-up is added separately. The online difference also contains miss/store timing variation | [triton_comparison.csv](generated/arena_triton/triton_comparison.csv) |
@@ -159,7 +153,7 @@ hashes; none of these numbers are imported from an external inference engine.
 
 ## Before submission
 
-1. Fill the author and institutional email placeholders in
+1. Confirm the author name, student number and institutional email in
    [`main.tex`](../report/main.tex).
 2. Re-read and personalize the AI-use statement. It must describe the actual
    final workflow, not merely remain as generated boilerplate.
@@ -168,8 +162,8 @@ hashes; none of these numbers are imported from an external inference engine.
 4. Keep the limitations explicit: QuALITY is not retrieval, test labels are
    withheld, Zipf repeats only 911 unique Q&A, and current model evidence covers
    two sizes of one family on one CUDA environment.
-5. Recheck every number against [`results.md`](results.md) and the curated files
-   under [`generated/`](generated/).
+5. Recheck every number against [`results.md`](results.md) and the committed
+   arena/Triton evidence under [`generated/arena_triton`](generated/arena_triton/README.md).
 
 Compilation and delivery instructions are in
 [`../report/README.md`](../report/README.md).

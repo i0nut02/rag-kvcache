@@ -3,8 +3,7 @@
 Status: 7 September 2026. This is the report-ready interpretation of the
 completed QuALITY trace, inference, block-size, INT8, and timing-repetition
 experiments. The primary Qwen2.5-1.5B evidence is now the complete 2,086-request
-dev suite in
-[`generated/full_dev_confirmation`](generated/full_dev_confirmation/README.md).
+dev suite summarized in this document.
 Detailed source tables and figures for the earlier confirmation remain in
 [`generated/inference_confirmation`](generated/inference_confirmation/results.md).
 The matched-working-set Qwen2.5-0.5B scale confirmation is reported separately
@@ -12,8 +11,7 @@ in [`qwen_0.5b_results.md`](qwen_0.5b_results.md). Final allocator and Triton
 evidence is frozen in
 [`generated/arena_triton`](generated/arena_triton/README.md).
 
-Implementation note (5 September 2026): the later
-[radix access-accounting fix](code_quality.md#scoped-cleanup-and-radix-access-correction-5-september-2026)
+Implementation note (5 September 2026): the later radix access-accounting fix
 removes an extra lookup during insertion. Radix values below remain evidence
 for the recorded historical revisions, not measurements of the corrected
 implementation. Document/fixed-block and arena/Triton algorithms are unchanged.
@@ -42,9 +40,8 @@ These are local implementations on one Transformers runner, inspired by vLLM's
 block organization and SGLang's radix lookup. Neither production engine is
 benchmarked. The later three-repetition, 1,000-request comparison now finds
 very similar document/radix latency and consistently slower fixed-256 timing.
-It uses the corrected radix implementation and is reported separately in
-[the repetition results](generated/strategy_repetitions/README.md); it does not
-turn the historical full-dev ordering into a universal ranking.
+It uses the corrected radix implementation and is summarized below; it does
+not turn the historical full-dev ordering into a universal ranking.
 
 CPU INT8 approximately doubles capacity. On the full random permutation it
 reaches a 44.67% article-token hit and `1.578x` mean speedup. It changes 12/2,086
@@ -123,16 +120,15 @@ The downloaded follow-up archive was checked before writing this document:
   original segmented controls recorded in
   [`analysis.json`](generated/inference_confirmation/analysis.json).
 
-Raw result archives remain outside Git, as intended. The complete SHA-256 list
-needed to identify this exact follow-up archive is in the provenance appendix.
+Raw result archives remain outside Git, as intended. Their provenance is
+summarized in this document.
 
 The complete-dev archive was audited separately: all 12 JSONLs contain 2,086
 contiguous rows, all paired traces and reference checksums align, all stored
 summaries recompute exactly, all byte/token invariants hold, and all runs share
 one dataset/model/prompt/code/hardware provenance. The source zip SHA-256 is
 `204a85e7bf64f52a912f018c65985a0de971d04be77de0d66dfbbb0e2d7ddf33`.
-Exact run hashes and the unique-Q&A Zipf analysis are in
-[`generated/full_dev_confirmation/README.md`](generated/full_dev_confirmation/README.md).
+The unique-Q&A Zipf analysis is summarized below.
 
 The earlier block-size, 300-request INT8, and timing-repetition artifacts use
 result schema `quality-kv-v2`. The primary complete-dev and final arena/Triton
@@ -236,9 +232,9 @@ any-positive-reuse coverage is 64.00%, but this is inflated by one-token
 matches; its useful 90%-coverage is not higher. This is cache coverage, not
 retrieval recall, because the request already supplies the article ID.
 
-All exact tables, conditional hit/miss TTFT, partial-prefix distributions,
-resource measurements, correctness accounting, and raw input hashes are in
-[`generated/full_dev_confirmation/README.md`](generated/full_dev_confirmation/README.md).
+The main aggregate tables, partial-prefix analysis, resource measurements and
+correctness accounting are retained in this document. Raw archives remain
+outside Git.
 
 ## Completed strategy repetitions (7 September 2026)
 
@@ -275,8 +271,8 @@ The shorter traces and changed environment prevent attributing differences
 from the historical full-dev suite to the fix alone. There is no request
 bootstrap or equivalence test, and the single references are not repeated
 timing controls. Full-dev remains the main accuracy evidence. Exact per-run
-values, p90 ranges, audit and reproduction commands are in
-[generated/strategy_repetitions](generated/strategy_repetitions/README.md).
+ranges are shown in the table above, and the executable protocol remains in the
+committed notebook.
 
 ## Complete no-inference matrix
 
@@ -510,8 +506,7 @@ Optional extensions are pinned/asynchronous CPU transfer with stream-safe
 lifetime management, page-table-aware attention that consumes arena locations
 without contiguous reconstruction, and replication on another GPU or model
 family. These are new research phases, not missing validation for the current
-claims. The finished-versus-optional boundary is maintained in
-[`next_steps.md`](next_steps.md).
+claims.
 
 ## Follow-up archive provenance
 

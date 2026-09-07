@@ -110,12 +110,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-For a CUDA runtime on Google Colab, follow the copy-paste setup and smoke-test
-commands in [docs/colab.md](docs/colab.md). Dataset files, model weights, and
-generated results are downloaded inside Colab and remain excluded from Git. Use
-`requirements-colab.txt` there; the fully pinned `requirements.txt` is intended
-for a clean virtual environment, not Colab's managed Python installation. The
-checkpointed all-2,086-question workflow is available directly as
+For a CUDA runtime on Google Colab, use `requirements-colab.txt`; the fully
+pinned `requirements.txt` is intended for a clean virtual environment, not
+Colab's managed Python installation. Dataset files, model weights, and generated
+results remain excluded from Git. The checkpointed all-2,086-question workflow
+and its copy-paste setup are available directly as
 [`notebooks/full_dev_confirmation_colab.ipynb`](notebooks/full_dev_confirmation_colab.ipynb)
 or through
 [Open in Colab](https://colab.research.google.com/github/i0nut02/rag-kvcache/blob/main/notebooks/full_dev_confirmation_colab.ipynb).
@@ -125,11 +124,10 @@ use [`strategy_repetitions_colab.ipynb`](notebooks/strategy_repetitions_colab.ip
 It compares document, fixed-block-256 and radix at 1,000 queries/run, with three
 repetitions, seed 42, LRU and 4 GiB GPU FP16. It targets roughly 7–9 hours and
 enforces a ten-hour benchmark window, rather than repeating the full matrix.
-See [the bounded protocol](docs/strategy_repetitions.md) for checkpoint and
-partial-result handling. All 20 confirmation runs completed in 8.27 hours;
-[results and provenance](docs/generated/strategy_repetitions/README.md) show
-very similar document/radix latency and consistently slower fixed-256 timing
-on these traces.
+The notebook includes checkpoint and partial-result handling. All 20
+confirmation runs completed in 8.27 hours; the consolidated
+[results](docs/results.md) show very similar document/radix latency and
+consistently slower fixed-256 timing on these traces.
 
 `run` performs real inference by default. Add `--no-inference` to load only the
 tokenizer and model configuration, calculate the exact 1.5B KV geometry, and
@@ -208,9 +206,7 @@ python experiments/run_quality.py run \
 The same command with `--device mps` keeps the cache on MPS. A CUDA run fails
 immediately with a clear error when CUDA is unavailable instead of silently
 falling back to CPU. The exact CUDA run is also recorded in
-`configs/gpu_inference.json`. See [docs/slurm.md](docs/slurm.md) for the complete
-cluster copy, environment setup, submission, monitoring, and result-retrieval
-workflow.
+`configs/gpu_inference.json`.
 
 Run the matched uncached baseline with `--policy none`; it does not require a
 cache budget:
@@ -284,18 +280,16 @@ python experiments/run_quality.py analyze-inference \
 The current generated results are in
 [`docs/generated/inference_confirmation/results.md`](docs/generated/inference_confirmation/results.md),
 the completed follow-ups are consolidated in [`docs/results.md`](docs/results.md),
-the staged Qwen2.5-0.5B scale-confirmation commands are in
-[`docs/qwen_0.5b_confirmation.md`](docs/qwen_0.5b_confirmation.md), its completed
-results are in [`docs/qwen_0.5b_results.md`](docs/qwen_0.5b_results.md). The
+the Qwen2.5-0.5B scale-confirmation configuration is
+[`configs/qwen_0.5b_confirmation.json`](configs/qwen_0.5b_confirmation.json), and
+its completed results are in [`docs/qwen_0.5b_results.md`](docs/qwen_0.5b_results.md). The
 implemented arena/Triton phase and commands are in
 [`docs/arena_triton.md`](docs/arena_triton.md). Its restore-only CUDA
 microbenchmark, matched arena measurements, and corrected end-to-end Triton
 comparison are complete. The first Triton row found a length-specialization/JIT
 issue; it is retained only as diagnostic history, while the final runtime-
 stride result and curated evidence are in
-[`docs/generated/arena_triton`](docs/generated/arena_triton/README.md). The
-bounded architecture review and refactor rationale are in
-[`docs/code_quality.md`](docs/code_quality.md).
+[`docs/generated/arena_triton`](docs/generated/arena_triton/README.md).
 
 Every result receives a neighboring manifest containing the result schema and dataset checksum,
 seed, exact model/tokenizer identifiers, prompt version, policy, workload,
