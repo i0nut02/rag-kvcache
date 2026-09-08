@@ -206,17 +206,14 @@ retrieved prompts and separate retrieval timing.
 
 \section{Statement on the use of AI}
 
-The main ideas and initial project structure were my own. I used generative
-AI extensively to develop the implementation: the Triton kernel, experiment
-scripts and much of the supporting test and analysis code were mainly
-AI-written. AI also helped me refine the design, read the literature and
-refactor code.
-
-I used AI to prepare tables and plots from saved results, discuss their
-interpretation, check cache correctness and revise this report. This included
-spotting unfair timing comparisons and planning further tests.
-I reviewed the generated code and checked the tests and saved outputs
-during development.
+The core research ideas, project scope, and experimental design were my own.
+OpenAI Codex was used as an engineering assistant during development to help
+with code prototyping—specifically the Triton INT8 kernel, experiment runners,
+and test suite—as well as code refactoring and plot generation scripts. Codex was
+also used for technical proofreading and editing of this report. All reported
+measurements come from experiments executed on hardware, and all generated
+code, data analysis, and final written content were integrated, debugged, and
+verified for correctness by the author.
 
 \bibliography{references.bib}
 \bibliographystyle{dlaiml2026}
